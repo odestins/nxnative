@@ -1339,7 +1339,7 @@ class IpaWatch:
     XCODE = {'CompileC': 'compiling', 'Ld': 'linking', 'CpResource': 'copying resources', 'CompileAssetCatalogVariant': 'asset catalog', 'ProcessInfoPlistFile': 'Info.plist'}
 
     def __init__(self, repo, w, out_ipa):
-        self.ios, self.o, self.part = repo / 'dm/ios', w / 'build/ios/pkg', out_ipa.with_name(out_ipa.name + '.partial')
+        self.ios, self.o, self.part = w / 'xcode', w / 'build/ios/pkg', out_ipa.with_name(out_ipa.name + '.partial')
         self.last = out_ipa.stat().st_size if out_ipa.is_file() else None   # the last IPA's size: the expected size of the new archive
         self.state, self.t, self.off, self.compiled, self.what, self.total, self.most, self.lock = None, 0, 0, 0, '', None, 0, threading.Lock()
 
@@ -1438,6 +1438,7 @@ def parse_args(argv):
     ap.add_argument('--app-name', help='app name on the home screen (default: the game name in the base NSP)')
     ap.add_argument('--bundle-id', help='the app\'s bundle ID (default: saved Xcode ID when preparing again, else org.nxnative.<base game title ID in lowercase>)')
     ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
+    ap.add_argument('--iswitch-card', action='store_true', help='also export a small .iswitch game card beside the IPA (or in the NSP folder for Xcode preparation)')
     ap.add_argument('--platform', choices=('ios', 'mac'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                     'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game (default: the PLATFORM setting, ios)')
     ap.add_argument('--team-id', help='Apple developer team ID (default: TEAM_ID setting, DM_TEAM_ID environment, or saved Xcode selection)')
@@ -1666,6 +1667,19 @@ def main(args=None):
     if env_file: ipa_env['DM_ENV_FILE'] = str(Path(os.path.expanduser(env_file)).resolve())
     show_fps = SHOW_FPS if args.show_fps is None else args.show_fps
     ipa_env['DM_SHOW_FPS'] = '1' if show_fps else '0'
+    def export_iswitch_card(packaged):
+        if not args.iswitch_card: return
+        sys.path.insert(0, str(repo / 'dm/ios/tools'))
+        import iswitch_manifest
+        destination = out_ipa.with_suffix('.iswitch') if packaged else nsp_dir / f'{app:016X}.iswitch'
+        try:
+            iswitch_manifest.write_card(destination, title_id=f'{app:016X}', name=app_name,
+                version=app_version, bundle_id=bundle_id, icon=icon,
+                profiled=bool(reg and not derived and not provisional), packaged=packaged,
+                revision=iswitch_manifest.source_revision(repo))
+        except (OSError, ValueError) as error:
+            raise BuildError(f'game prepared, but reSwitch card export failed: {error}') from error
+        say(f'reSwitch card: {destination} (import this file in reSwitch after installing the game app)')
     if show_fps: say('frame-rate counter: on (DM_SHOW_FPS=0 in the app\'s Documents/env.txt turns it off)')
     if prepare_xcode:
         PROG.stage('prepare Xcode')
@@ -1679,12 +1693,14 @@ def main(args=None):
         say(f'Xcode derived data: {work / "xcode-derived-data"}')
         say('choose the game scheme in Xcode, select your Team and iPhone or iPad, then Run (Release)')
         report_profile_status(g, reg, pkg_ver, derived, provisional, 'Xcode project')
+        export_iswitch_card(packaged=False)
         return
     watch = IpaWatch(repo, work / 'ipa', out_ipa)
     PROG.stage('app build', poll=watch.poll, step='starting')   # build_ipa.sh's "pack IPA" line starts the stage "IPA pack"
     run(['bash', repo / 'dm/ios/tools/build_ipa.sh', out_ipa], logs / 'build_ipa.log', env=ipa_env, on_line=watch.line)
     if not out_ipa.is_file(): raise BuildError(f'no IPA at {out_ipa}')
     PROG.end(f'{out_ipa.name}, {amount(out_ipa.stat().st_size, "B")}')
+    export_iswitch_card(packaged=True)
     rmtree(work / 'tmp')
     if not keep:
         say(f'deleting the extracted game files: {ex}'); rmtree(ex)

@@ -1,0 +1,375 @@
+[
+  {
+    "titleID": "01003FC01670C000",
+    "name": "13 Sentinels: Aegis Rim",
+    "versions": [
+      "1.10"
+    ]
+  },
+  {
+    "titleID": "0100A83022A22000",
+    "name": "Absolum",
+    "versions": [
+      "1.1.1"
+    ]
+  },
+  {
+    "titleID": "010005501E68C000",
+    "name": "Ace Attorney Investigations Collection",
+    "versions": [
+      "1.0.0.2"
+    ]
+  },
+  {
+    "titleID": "010089B00D09C000",
+    "name": "AI: THE SOMNIUM FILES",
+    "versions": [
+      "1.0.1"
+    ]
+  },
+  {
+    "titleID": "0100713016CCC000",
+    "name": "AI: THE SOMNIUM FILES - nirvanA Initiative",
+    "versions": [
+      "1.0.2"
+    ]
+  },
+  {
+    "titleID": "0100623017A58000",
+    "name": "Alan Wake Remastered",
+    "versions": [
+      "1.0.1"
+    ]
+  },
+  {
+    "titleID": "01006F8002326000",
+    "name": "Animal Crossing: New Horizons",
+    "versions": [
+      "3.0.3"
+    ]
+  },
+  {
+    "titleID": "010020D01AD24000",
+    "name": "ANIMAL WELL",
+    "versions": [
+      "1.0.10"
+    ]
+  },
+  {
+    "titleID": "0100CD801CE5E000",
+    "name": "Balatro",
+    "versions": [
+      "1.1.3"
+    ]
+  },
+  {
+    "titleID": "0100620012D6E000",
+    "name": "Big Brain Academy: Brain vs. Brain",
+    "versions": [
+      "1.2.0"
+    ]
+  },
+  {
+    "titleID": "0100F5D01DA3A000",
+    "name": "Brain Memory Training Academy",
+    "versions": [
+      "1.0.0"
+    ]
+  },
+  {
+    "titleID": "01009BF0072D4000",
+    "name": "Captain Toad: Treasure Tracker",
+    "versions": [
+      "1.4.2"
+    ]
+  },
+  {
+    "titleID": "0100BF00112C0000",
+    "name": "Catherine: Full Body",
+    "versions": [
+      "1.0.1a"
+    ]
+  },
+  {
+    "titleID": "01002B30028F6000",
+    "name": "Celeste",
+    "versions": [
+      "1.4.1.1"
+    ]
+  },
+  {
+    "titleID": "0100A5C00D162000",
+    "name": "Cuphead",
+    "versions": [
+      "1.3.7"
+    ]
+  },
+  {
+    "titleID": "01004AB00A260000",
+    "name": "DARK SOULS: REMASTERED",
+    "versions": [
+      "1.0.3"
+    ]
+  },
+  {
+    "titleID": "010014E00DB56000",
+    "name": "Digimon Story Cyber Sleuth: Complete Edition",
+    "versions": [
+      "1.0.3"
+    ]
+  },
+  {
+    "titleID": "0100A9D01C446000",
+    "name": "DRAGON QUEST VII Reimagined",
+    "versions": [
+      "1.2.0"
+    ]
+  },
+  {
+    "titleID": "01006C300E9F0000",
+    "name": "DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition",
+    "versions": [
+      "1.0.4"
+    ]
+  },
+  {
+    "titleID": "0100606026F12000",
+    "name": "FINAL FANTASY RESONANCE",
+    "versions": [
+      "1.0.1"
+    ]
+  },
+  {
+    "titleID": "010038B015560000",
+    "name": "FINAL FANTASY TACTICS - The Ivalice Chronicles",
+    "versions": [
+      "1.4.0"
+    ]
+  },
+  {
+    "titleID": "0100A6301214E000",
+    "name": "Fire Emblem Engage",
+    "versions": [
+      "2.0.0"
+    ]
+  },
+  {
+    "titleID": "010055D009F78000",
+    "name": "Fire Emblem: Three Houses",
+    "versions": [
+      "1.2.0"
+    ]
+  },
+  {
+    "titleID": "0100AC601DCA8000",
+    "name": "GYLT",
+    "versions": [
+      "1.2"
+    ]
+  },
+  {
+    "titleID": "0100535012974000",
+    "name": "Hades",
+    "versions": [
+      "1.0.38233"
+    ]
+  },
+  {
+    "titleID": "0100A00019DE0000",
+    "name": "Hades II",
+    "versions": [
+      "0.0.126424"
+    ]
+  },
+  {
+    "titleID": "010044500CF8E000",
+    "name": "Hellblade: Senua's Sacrifice",
+    "versions": [
+      "1.1.0"
+    ]
+  },
+  {
+    "titleID": "010013C00E930000",
+    "name": "Hollow Knight: Silksong",
+    "versions": [
+      "1.0.30000"
+    ]
+  },
+  {
+    "titleID": "01001BE01908C000",
+    "name": "HOT WHEELS UNLEASHED™ 2 - Turbocharged",
+    "versions": [
+      "1.0.1"
+    ]
+  },
+  {
+    "titleID": "01002B00111A2000",
+    "name": "Hyrule Warriors: Age of Calamity",
+    "versions": [
+      "1.3.0"
+    ]
+  },
+  {
+    "titleID": "01002FC00412C000",
+    "name": "Little Nightmares",
+    "versions": [
+      "1.0.4"
+    ]
+  },
+  {
+    "titleID": "0100DCA0064A6000",
+    "name": "Luigi's Mansion 3",
+    "versions": [
+      "1.4.0"
+    ]
+  },
+  {
+    "titleID": "0100152000022000",
+    "name": "Mario Kart 8 Deluxe",
+    "versions": [
+      "4.0.0"
+    ]
+  },
+  {
+    "titleID": "010093801237C000",
+    "name": "Metroid Dread",
+    "versions": [
+      "2.1.0"
+    ]
+  },
+  {
+    "titleID": "0100B04011742000",
+    "name": "Monster Hunter Rise",
+    "versions": [
+      "16.0.2"
+    ]
+  },
+  {
+    "titleID": "010051701FB46000",
+    "name": "Monster Train 2",
+    "versions": [
+      "1.1.1"
+    ]
+  },
+  {
+    "titleID": "01005270232F2000",
+    "name": "OCTOPATH TRAVELER 0",
+    "versions": [
+      "1.0.5"
+    ]
+  },
+  {
+    "titleID": "0100ECD018EBE000",
+    "name": "Paper Mario: The Thousand-Year Door",
+    "versions": [
+      "1.0.1"
+    ]
+  },
+  {
+    "titleID": "0100E44016C22000",
+    "name": "Patrick's Parabox",
+    "versions": [
+      "1.0.1"
+    ]
+  },
+  {
+    "titleID": "0100F43008C44000",
+    "name": "Pokémon Legends: Z-A",
+    "versions": [
+      "2.0.2"
+    ]
+  },
+  {
+    "titleID": "010020400E1C2000",
+    "name": "Raging Loop",
+    "versions": [
+      "1.0.0"
+    ]
+  },
+  {
+    "titleID": "0100D9F01D474000",
+    "name": "Rhythm Heaven Groove",
+    "versions": [
+      "1.0.0"
+    ]
+  },
+  {
+    "titleID": "01008BC024FDE000",
+    "name": "STEINS;GATE RE:BOOT",
+    "versions": [
+      "1.0.3"
+    ]
+  },
+  {
+    "titleID": "010028600EBDA000",
+    "name": "Super Mario 3D World + Bowser's Fury",
+    "versions": [
+      "1.2.2"
+    ]
+  },
+  {
+    "titleID": "010015100B514000",
+    "name": "Super Mario Bros. Wonder",
+    "versions": [
+      "1.0.0",
+      "1.0.1",
+      "1.2.1"
+    ]
+  },
+  {
+    "titleID": "010099C022B96000",
+    "name": "Super Mario Galaxy",
+    "versions": [
+      "1.3.1"
+    ]
+  },
+  {
+    "titleID": "0100FD8022DAA000",
+    "name": "Super Mario Galaxy 2",
+    "versions": [
+      "1.4.0"
+    ]
+  },
+  {
+    "titleID": "0100000000010000",
+    "name": "Super Mario Odyssey",
+    "versions": [
+      "1.4.1"
+    ]
+  },
+  {
+    "titleID": "010036E00FB20000",
+    "name": "The Great Ace Attorney Chronicles",
+    "versions": [
+      "1.0.0"
+    ]
+  },
+  {
+    "titleID": "01007EF00011E000",
+    "name": "The Legend of Zelda: Breath of the Wild",
+    "versions": [
+      "1.9.0"
+    ]
+  },
+  {
+    "titleID": "01006BB00C6F0000",
+    "name": "The Legend of Zelda: Link's Awakening",
+    "versions": [
+      "1.1.0"
+    ]
+  },
+  {
+    "titleID": "0100F2C0115B6000",
+    "name": "The Legend of Zelda: Tears of the Kingdom",
+    "versions": [
+      "1.4.3"
+    ]
+  },
+  {
+    "titleID": "010069401ADB8000",
+    "name": "Unicorn Overlord",
+    "versions": [
+      "1.05"
+    ]
+  }
+]

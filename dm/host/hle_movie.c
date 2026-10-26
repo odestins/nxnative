@@ -1,6 +1,6 @@
-// The SDK's movie library (subsdk0 = NintendoSDK_movie, Engage): Extractor demuxes, Decoder uses NVIDIA's hardware decoder (NVOMX → NvRmChannelOpen opens the nvdrv device).
-// The host has no nvdrv: the SDK aborts when the decoder thread opens the device. Extractor::SetDataSource returns 0x1000 (the same code the SDK returns when it has no implementation object); Engage's Unity demuxes WebM itself and does not use it.
-// The host takes over Decoder (below; VP9 is decoded with libvpx, H.264 with VideoToolbox in hle_movie_avc.c, Vorbis audio with stb_vorbis): Engage's movies are 103 VP9 WebM files under RomFS/Data/StreamingAssets/Movie (2.7 GB, no audio track), and the game does not go on until the opening movie S01F has played.
+// The SDK's movie library demuxes with its own Extractor. The host replaces Decoder:
+// NVIDIA's hardware decoder would open nvdrv, which the host does not provide.
+// VP9 uses libvpx, H.264 VideoToolbox, Vorbis stb_vorbis, and AAC AudioToolbox.
 #include "hle.h"
 #include <arm_neon.h>
 #include <mach/mach.h>
@@ -21,14 +21,6 @@
 #undef L
 #undef C
 #undef R
-
-#if 0
-HLE_FORCE("_ZN5movie9Extractor13SetDataSourceEPKc", "movie demuxer: the host does not play movies yet, opening fails (0x1000)", int, h_movie_SetSource, void *self, const char *path) {
-    (void)self; static int red; if (!red++) LOG("[RED] movie: the host does not demux, opening reports failure (first %s)", path ? path : "(null)");
-    return 0x1000;
-}
-#endif
-
 
 // ---------- Decoder ----------
 // The SDK's Decoder is a thin wrapper over Android's MediaCodec (DecoderImpl wraps android::MediaCodec):
@@ -63,6 +55,7 @@ HLE_FORCE("_ZN5movie9Extractor13SetDataSourceEPKc", "movie demuxer: the host doe
 typedef struct {
     pthread_mutex_t mu;                          // guards the queues and slots below
     int type, fmt, mode, nout;                   // nout: output slots, MD_NOUT_VIDEO for video, MD_NOUT for audio (see the constructor)
+    int legacy_output;                          // SDK 3: NV12 enum 3; GetOutputBufferSize returns alignment, not mode
     void **evc;                                  // the client's DecoderEvents: {input, output, format, error} EventType*, read at signal time as the SDK does (md_event)
     void *ev[4];                                 // the entries that were events at registration: used when the client's entry no longer is one (by Metroid Dread's second movie its struct had been overwritten and Start crashed signalling)
     int w, h, fmt_sent, started, in_eos;          // in_eos: an end-of-stream packet was sent; no input until Flush / Stop (h_movie_AcqIn)
@@ -496,9 +489,29 @@ HLE_FORCE("_ZN5movie7DecoderC1ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11De
     self[1] = d;
     LOG("[movie] decoder %p: type %d output %d mode %d priority %d", (void *)self, type, fmt, mode, prio);
 }
+// SDK 3's constructor predates DecoderMode: output is delivered in CPU buffers.
+// NintendoSDK_movie 3.5.1 (Little Nightmares) exports both aliases with the same
+// vtable/implementation-pointer layout. Leaving either in the guest enters
+// NVIDIA's OMX decoder before the host's Configure can take over.
+HLE_FORCE("_ZN5movie7DecoderC1ENS_11DecoderTypeENS_19DecoderOutputFormatE", "movie decoder (SDK 3, CPU buffers): host implementation", void, h_movie_Decoder3,
+          void **self, int type, int fmt) {
+    // SDK 3's ConvertDecoderOutputFormat selects ConvertToNv12 for enum 3
+    // (later SDKs use 4); its GetOutputBufferSize writes alignment 32 to x2.
+    h_movie_Decoder(self, type, fmt == 3 ? MD_FMT_NV12 : fmt, 1, 0);
+    mdec_t *d = md_of(self); if (d) d->legacy_output = 1;
+}
+HLE_FORCE("_ZN5movie7DecoderC2ENS_11DecoderTypeENS_19DecoderOutputFormatE", "movie decoder base constructor (SDK 3): host implementation", void, h_movie_DecoderBase3,
+          void **self, int type, int fmt) { h_movie_Decoder3(self, type, fmt); }
 // SDK 4's constructor has no priority argument (Dark Souls Remastered, NintendoSDK_movie 4.5.0). Without this take-over the SDK built its own decoder and the host's Configure read it as a host one (a call through a null pointer)
 HLE_FORCE("_ZN5movie7DecoderC1ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11DecoderModeE", "movie decoder (SDK 4, no priority): host implementation", void, h_movie_Decoder4,
           void **self, int type, int fmt, int mode) { h_movie_Decoder(self, type, fmt, mode, 0); }
+// The base-object constructor has the same arguments and layout. Mario Tennis
+// Aces imports C2; leaving it in the guest produced a guest DecoderImpl that
+// Configure then treated as a host mdec_t, with uninitialized MediaData hooks.
+HLE_FORCE("_ZN5movie7DecoderC2ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11DecoderModeE", "movie decoder base constructor (SDK 4): host implementation", void, h_movie_DecoderBase4,
+          void **self, int type, int fmt, int mode) { h_movie_Decoder(self, type, fmt, mode, 0); }
+HLE_FORCE("_ZN5movie7DecoderC2ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11DecoderModeEi", "movie decoder base constructor: host implementation", void, h_movie_DecoderBase,
+          void **self, int type, int fmt, int mode, int prio) { h_movie_Decoder(self, type, fmt, mode, prio); }
 static void md_free(void **self) {
     mdec_t *d = md_of(self); if (!d) return;
     md_defer_drop(d);
@@ -697,9 +710,9 @@ HLE_FORCE("_ZN5movie7Decoder21GetOutputBufferFormatEiPNS_9MediaDataE", "movie de
 HLE_FORCE("_ZN5movie7Decoder19GetOutputBufferSizeEPiS1_", "movie decoder: output buffer size (one NV12 frame)", int, h_movie_OutSize, void **self, int *size, int *mode) {
     mdec_t *d = md_of(self); if (!d) return 0x1000;
     if (!size || !mode) return 0x100b;
-    if (MD_AUDIO(d)) { *size = MD_PCM_CAP; *mode = d->mode; MD_TRACE(d, 11, "GetOutputBufferSize → %d (PCM)", *size); return 0; }
+    if (MD_AUDIO(d)) { *size = MD_PCM_CAP; *mode = d->legacy_output ? 32 : d->mode; MD_TRACE(d, 11, "GetOutputBufferSize → %d (PCM)", *size); return 0; }
     int w, h, stride, slice; md_dims(d, &w, &h, &stride, &slice);
-    *size = stride * slice * 3 / 2; *mode = d->mode;   // the SDK fills the second output with the decoder mode
+    *size = stride * slice * 3 / 2; *mode = d->legacy_output ? 32 : d->mode;   // SDK 3 returns alignment; later SDKs return decoder mode
     MD_TRACE(d, 11, "GetOutputBufferSize → %d (%d×%d)", *size, w, h);
     return 0;
 }

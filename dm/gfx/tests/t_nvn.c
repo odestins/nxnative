@@ -540,6 +540,28 @@ int main(void) {
         EXPECT("several rows whose alignment would break the wrapped address: refused", 0, nvn_tbuf_rows(20000, 4, 3, &w, &h, &row));
     }
 
+    // A disabled callback must not be invoked even when host command records
+    // exceed a fixed-size guest recording. Re-enabling restores the callback.
+    {
+        NVNcommandBuffer disabled;
+        void (*enable)(NVNcommandBuffer *, uint32_t) = proc("nvnCommandBufferSetCommandMemoryCallbackEnabled");
+        P(nvnCommandBufferInitialize)(&disabled, &dev);
+        P(nvnCommandBufferSetMemoryCallback)(&disabled, mem_cb);
+        enable(&disabled, 0);
+        int before = g_cb_calls;
+        P(nvnCommandBufferBeginRecording)(&disabled);
+        for (int i = 0; i < 8; i++) P(nvnCommandBufferBarrier)(&disabled, 0);
+        P(nvnCommandBufferEndRecording)(&disabled);
+        EXPECT("disabled command callback not called on overflow", before, g_cb_calls);
+        enable(&disabled, 1);
+        P(nvnCommandBufferAddCommandMemory)(&disabled, &g_cmdpool, (ptrdiff_t)g_cmdoff, 64);
+        P(nvnCommandBufferBeginRecording)(&disabled);
+        for (int i = 0; i < 8; i++) P(nvnCommandBufferBarrier)(&disabled, 0);
+        P(nvnCommandBufferEndRecording)(&disabled);
+        EXPECT("re-enabled command callback called on overflow", 1, g_cb_calls > before);
+        P(nvnCommandBufferFinalize)(&disabled);
+    }
+
     printf("== %d checks, %d failed ==\n", g_n, g_fail);
     return g_fail != 0;
 }

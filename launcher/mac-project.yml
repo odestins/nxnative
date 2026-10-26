@@ -1,0 +1,89 @@
+name: reSwitchMac
+options:
+  minimumXcodeGenVersion: 2.44.0
+  deploymentTarget:
+    macOS: "26.0"
+packages:
+  iSwitchCore:
+    path: .
+  SwitchMacRuntime:
+    path: Mac
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Manual
+    MARKETING_VERSION: "1.2.1"
+    CURRENT_PROJECT_VERSION: "6"
+targets:
+  reSwitchMac:
+    type: application
+    platform: macOS
+    sources:
+      - Mac/Sources/Switch
+      - path: Mac/SwitchMac.icon
+        buildPhase: resources
+      - App/GameChatService.swift
+      - App/GameChatPreview.swift
+      - App/GameChatTransport.swift
+      - App/GameChatCredentials.swift
+      - App/GameChatView.swift
+      - App/GuestChatClient.swift
+      - App/ChatPlatform.swift
+      - App/ChatDesign.swift
+      - App/StorePickerView.swift
+      - DiscordBridge
+      - path: Resources/discord.json
+        buildPhase: resources
+      - path: Resources/DiscordNotices.txt
+        buildPhase: resources
+    dependencies:
+      - package: iSwitchCore
+      - package: SwitchMacRuntime
+      - framework: Vendor/discord_mac/discord_partner_sdk.framework
+        embed: true
+        codeSign: true
+    settings:
+      base:
+        PRODUCT_NAME: reSwitch
+        PRODUCT_MODULE_NAME: SwitchMacApp
+        PRODUCT_BUNDLE_IDENTIFIER: com.odestins.switch.mac
+        DEVELOPMENT_TEAM: HT92D8SX2K
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: SwitchMac
+        CODE_SIGN_ENTITLEMENTS: Mac/Switch.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: DiscordBridge/ArcDiscordBridge.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++20
+        INFOPLIST_FILE: Mac/Info.plist
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/../Frameworks"]
+  reSwitchMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Mac/AppTests
+      - AppTests/GameChatTests.swift
+      - AppTests/GuestChatTests.swift
+      - AppTests/GuestChatClientTests.swift
+      - AppTests/LiveGuestChatTests.swift
+    dependencies:
+      - target: reSwitchMac
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.odestins.switch.mac.tests
+      GENERATE_INFOPLIST_FILE: YES
+      TEST_HOST: "$(BUILT_PRODUCTS_DIR)/reSwitch.app/Contents/MacOS/reSwitch"
+      BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  reSwitchMac:
+    build:
+      targets:
+        reSwitchMac: all
+    test:
+      targets: [reSwitchMacTests]
+  reSwitchMac Live Chat:
+    build:
+      targets:
+        reSwitchMac: all
+    test:
+      targets: [reSwitchMacTests]
+      environmentVariables:
+        SWITCH_CHAT_LIVE_TEST: "1"

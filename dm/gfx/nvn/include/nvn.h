@@ -54,8 +54,10 @@ typedef struct {
 } NVNdeviceBuilder;
 
 typedef struct {
-    // TODO: reverse and define this as it looks like it's not an opaque type.
-    char dummy[1];
+    int numTiledLevels;
+    int tileWidth;
+    int tileHeight;
+    int tileDepth;
 } NVNtextureSparseTileLayout;
 
 typedef struct {

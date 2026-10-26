@@ -1,0 +1,43 @@
+# Little Nightmares Complete Edition 1.0.4: Mac opening-room smoke test; iOS remains experimental.
+# Evidence and validation limits: docs/little-nightmares-2026-10-25.md
+
+# ---- Identity ----
+title_id	01002FC00412C000
+program_id	01002FC00412C000
+
+# ---- App ----
+name	Little Nightmares
+ipa	LittleNightmares.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v1	1.0.4	main=bd8dcb0eaf0300e165e6d9a57fc8d024	subsdk0=80d47ec27d36e0fe5b5643c07d706513	sdk=8bb65519bc6399ab432e0ba7cdb16e2b
+package	v1
+shader_versions	v1
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	Atlas/Content/Paks/Atlas-Switch.pak
+zip_store	.mp4:.pak:.metallib
+
+# ---- Memory ----
+# Measured at nninitStartup: SDK 3.5.1, no virtual address memory; SetHeapSize requests 0xc5600000 bytes. Use the 3328 MiB heap layout.
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+# the decoded shader code archives: the engine's global shaders and the game's material shaders
+shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
+shader_note	Little Nightmares shaders (provisional profile)
+
+# ---- After the rewrite ----
+# the rewritten modules are larger than the default 64 MB of used memory (Age of Calamity: 66.6 MB → 72 MB)
+mem_used	0x7e00000
+
+# Camera control needs the right stick.
+pad_layout	full

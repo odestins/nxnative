@@ -30,6 +30,7 @@ static class P {
         g_allow = Array.IndexOf(a, "--allow-damaged") >= 0; a = Array.FindAll(a, s => s != "--allow-damaged");
         if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir>"); return 2; }
         KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
+        if (a[1] == "--system-data") return SystemData(ks, a[2], a[3]);
         if (a[1] == "--aoc") return Aoc(ks, a[2], a[3]);
         var basePkg = OpenNsp(ks, a[1]); var updPkg = a[2] == "-" ? null : OpenNsp(ks, a[2]);
         Nca baseProg = Pick(basePkg, NcaContentType.Program) ?? throw new Exception("no Program NCA in the base NSP");
@@ -68,6 +69,26 @@ static class P {
         g_lenient = () => new RomFsFileSystem(updProg != null ? baseProg.OpenStorageWithPatch(updProg, NcaSectionType.Data, IntegrityCheckLevel.IgnoreOnInvalid) : baseProg.OpenStorage(NcaSectionType.Data, IntegrityCheckLevel.IgnoreOnInvalid));
         if (manifest) Manifest(new RomFsFileSystem(romfs), Path.Combine(outDir, "romfs_manifest.tsv"));
         else Copy(new RomFsFileSystem(romfs), Path.Combine(outDir, "RomFS"), cmpDir);
+        return Damaged();
+    }
+
+    // Optional firmware data. The HLE host does not execute firmware programs.
+    static int SystemData(KeySet ks, string source, string destination) {
+        if (!Directory.Exists(source)) throw new Exception("system-data source must be an NCA directory");
+        int count = 0;
+        foreach (string path in Directory.EnumerateFiles(source, "*.nca")) {
+            using var storage = new LocalStorage(path, FileAccess.Read);
+            var nca = new Nca(ks, storage);
+            ulong id = nca.Header.TitleId;
+            if (nca.Header.ContentType != NcaContentType.Data || id < 0x0100000000000800ul || id > 0x01000000000008fful) continue;
+            string output = Path.Combine(destination, id.ToString("x16"));
+            if (Directory.Exists(output)) throw new Exception($"duplicate system data archive {id:x16}");
+            Copy(nca.OpenFileSystem(NcaSectionType.Data, IntegrityCheckLevel.ErrorOnInvalid), output, null);
+            Console.WriteLine($"system data {id:x16}");
+            count++;
+        }
+        if (count == 0) throw new Exception("no system resource archives found in firmware");
+        Console.WriteLine($"system data archives: {count}");
         return Damaged();
     }
 

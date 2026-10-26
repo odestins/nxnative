@@ -24,6 +24,8 @@ static void state(chain *c, int kind, const void *s, size_t n) {
 }
 static tex_t texture(unsigned w, unsigned levels, int depth) {
     static uint64_t ser=5000; tex_t t={.magic=MAGIC('T', 'E', 'X', 0), .serial =ser++}; t.d.width=t.d.height=w;
+    // These synthetic textures do not alias the same storage.
+    t.off=(int64_t)t.serial*65536;
     t.d.depth=t.d.samples=1; t.d.levels=levels; t.d.target=NVN_TEXTURE_TARGET_2D;
     t.d.format=depth?NVN_FORMAT_DEPTH32F_STENCIL8:NVN_FORMAT_RGBA8; return t;
 }

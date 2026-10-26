@@ -1,0 +1,158 @@
+name: reSwitch
+options:
+  minimumXcodeGenVersion: 2.44.0
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  SwitchSaveSync:
+    path: ../cloudsave
+  iSwitchCore:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "19"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  reSwitch:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Resources
+      - DiscordBridge
+    dependencies:
+      - package: SwitchSaveSync
+      - package: iSwitchCore
+      - framework: Vendor/discord_social_sdk/lib/release/discord_partner_sdk.xcframework
+        embed: true
+      - framework: Vendor/discord_social_sdk/lib/release/discord_partner_sdk_krisp.xcframework
+        embed: true
+    settings:
+      base:
+        PRODUCT_NAME: reSwitch
+        PRODUCT_MODULE_NAME: iSwitch
+        PRODUCT_BUNDLE_IDENTIFIER: com.odestins.iswitch
+        DEVELOPMENT_TEAM: HT92D8SX2K
+        CODE_SIGN_ENTITLEMENTS: ../cloudsave/Switch.entitlements
+        SWITCH_CLOUD_SAVES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleDisplayName: reSwitch
+        SWIFT_OBJC_BRIDGING_HEADER: DiscordBridge/ArcDiscordBridge.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++20
+    info:
+      path: build/Info.plist
+      properties:
+        CFBundleDisplayName: reSwitch
+        DMCloudSaveContainer: iCloud.com.odestins.iswitch
+        DMCloudSaveEnabled: $(SWITCH_CLOUD_SAVES)
+        NSUbiquitousContainers:
+          iCloud.com.odestins.iswitch:
+            NSUbiquitousContainerIsDocumentScopePublic: false
+            NSUbiquitousContainerName: reSwitch Saves
+            NSUbiquitousContainerSupportedFolderLevels: Any
+        CFBundleName: reSwitch
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UIApplicationSupportsIndirectInputEvents: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        NSMicrophoneUsageDescription: Voice chat with your Chat friends while you play.
+        UIBackgroundModes: [audio]
+        LSApplicationQueriesSchemes: [discord]
+        CFBundleURLTypes:
+          - CFBundleURLName: Discord sign-in
+            CFBundleURLSchemes: [discord-1560449870496792729]
+          - CFBundleURLName: Chat invitation
+            CFBundleURLSchemes: [switchchat]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: reSwitch Game Card
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.odestins.iswitch.game, com.odestins.iswitch.library]
+          - CFBundleTypeName: Game and System Files
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.odestins.iswitch.nsp, com.odestins.iswitch.xci, com.odestins.iswitch.keys, public.zip-archive]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.odestins.iswitch.nsp
+            UTTypeDescription: Nintendo Switch Package
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [nsp]
+          - UTTypeIdentifier: com.odestins.iswitch.xci
+            UTTypeDescription: Nintendo Switch Cartridge Image
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [xci]
+          - UTTypeIdentifier: com.odestins.iswitch.keys
+            UTTypeDescription: Switch Key File
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [keys]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.odestins.iswitch.game
+            UTTypeDescription: reSwitch Game Card
+            UTTypeConformsTo: [public.json]
+            UTTypeTagSpecification:
+              public.filename-extension: [iswitch]
+          - UTTypeIdentifier: com.odestins.iswitch.library
+            UTTypeDescription: reSwitch Library
+            UTTypeConformsTo: [public.json]
+            UTTypeTagSpecification:
+              public.filename-extension: [iswitchlibrary]
+  reSwitchTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: AppTests
+    dependencies:
+      - target: reSwitch
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.odestins.iswitch.tests
+      GENERATE_INFOPLIST_FILE: YES
+      TEST_HOST: "$(BUILT_PRODUCTS_DIR)/reSwitch.app/reSwitch"
+      BUNDLE_LOADER: "$(TEST_HOST)"
+  reSwitchUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: UITests
+    dependencies:
+      - target: reSwitch
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.odestins.iswitch.uitests
+      GENERATE_INFOPLIST_FILE: YES
+schemes:
+  reSwitch:
+    build:
+      targets:
+        reSwitch: all
+    test:
+      targets: [reSwitchTests, reSwitchUITests]
+    run:
+      config: Debug
+    archive:
+      config: Release
+  reSwitch Hardware:
+    build:
+      targets:
+        reSwitch: all
+    test:
+      config: Release
+      targets: [reSwitchUITests]
+    run:
+      config: Release

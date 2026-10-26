@@ -34,15 +34,26 @@ VNACP=$(dirname "$ROMFS")/control.nacp; [ -f "$VNACP" ] || VNACP=$W/data/v0/cont
 export LC_ALL=C DM_BUNDLE_ID=${DM_BUNDLE_ID:-org.nxnative.$(echo "$GAME" | tr 'A-Z' 'a-z')} DM_DISPLAY_NAME DM_APP_VERSION DM_APP_CATEGORY=$(gp app_category) DM_TEAM_ID=${DM_TEAM_ID:-0000000000}   # placeholder identity: unsigned, the install tool replaces it
 if [ "${DM_SHOW_FPS:-0}" = 1 ]; then export DM_SHOW_FPS=YES; else export DM_SHOW_FPS=NO; fi
 export DM_LANG=${DM_LANG:-en-US}
+export DM_SAVE_SYNC_PACKAGE="$DM/../cloudsave"
+if [ -z "${DM_ICLOUD_CONTAINER+x}" ]; then
+  case "$DM_BUNDLE_ID" in com.odestins.iswitch.game.*) DM_ICLOUD_CONTAINER=iCloud.com.odestins.iswitch ;; *) DM_ICLOUD_CONTAINER= ;; esac
+fi
+export DM_ICLOUD_CONTAINER
+DM_ICLOUD_ENABLED=NO
+if [ -n "$DM_ICLOUD_CONTAINER" ]; then DM_ICLOUD_ENABLED=YES; fi
+export DM_ICLOUD_ENABLED
+[ -z "${DM_SYSTEM_DATA:-}" ] || [ -d "$DM_SYSTEM_DATA" ] || die "system resource folder unavailable: $DM_SYSTEM_DATA"
+# Isolate generated sources for unsigned builds too: different games must never share Gen/.
+export DM_LAUNCH_SCHEME=nxnative-$(echo "$GAME" | tr 'A-Z' 'a-z')
+IOS=${DM_XCODE_PROJECT_DIR:-$W/xcode}
+mkdir -p "$IOS" || die "mkdir $IOS"
+IOS=$(cd "$IOS" && pwd)
+[ "$IOS" != "$IOS_SOURCE" ] || die "the per-game Xcode project must be outside dm/ios"
+# Source links follow repository edits; generated files and build products belong to this game only.
+for item in Sources tools; do ln -sfn "$IOS_SOURCE/$item" "$IOS/$item" || die "link $item"; done
+cp "$IOS_SOURCE/project.yml" "$IOS/project.yml" || die "copy project template"
+cd "$IOS" || die "cd $IOS"
 if [ "$PREPARE_XCODE" = YES ]; then
-  IOS=${DM_XCODE_PROJECT_DIR:-$W/xcode}
-  mkdir -p "$IOS" || die "mkdir $IOS"
-  IOS=$(cd "$IOS" && pwd)
-  [ "$IOS" != "$IOS_SOURCE" ] || die "the per-game Xcode project must be outside dm/ios"
-  # Source links follow repository edits; generated files and build products belong to this game only. Linked again each time: a project prepared from another checkout (a removed worktree) follows this one
-  for item in Sources tools; do ln -sfn "$IOS_SOURCE/$item" "$IOS/$item" || die "link $item"; done
-  cp "$IOS_SOURCE/project.yml" "$IOS/project.yml" || die "copy project template"
-  cd "$IOS" || die "cd $IOS"
   DM_SCHEME_NAME="$(echo "$DM_DISPLAY_NAME" | tr '/:' '__') ($GAME)"   # the scheme file is named after it
 
 else DM_SCHEME_NAME=DmIOS; fi
@@ -102,6 +113,7 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
   if [ -n "${DM_ENTITLEMENTS:-}" ]; then cp "$DM_ENTITLEMENTS" Gen/DmIOS.entitlements || die "copy DM_ENTITLEMENTS"
   else printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
     '<plist version="1.0"><dict><key>com.apple.developer.kernel.increased-memory-limit</key><true/></dict></plist>' > Gen/DmIOS.entitlements || die "entitlements"; fi
+  if [ -n "$DM_ICLOUD_CONTAINER" ]; then python3 tools/gen_cloud_entitlements.py Gen/DmIOS.entitlements "$DM_ICLOUD_CONTAINER" || die "cloud save entitlements"; fi
   echo "CODE_SIGN_ENTITLEMENTS = Gen/DmIOS.entitlements" >> Gen/dm.xcconfig
   t "entitlements: $(plutil -convert json -o - Gen/DmIOS.entitlements)"
 fi
@@ -128,10 +140,11 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
 # Straight from the sources: the app without its signature, and without the folders an app built before pack_ipa.py still has (DerivedData keeps resources that left the project;
 # msl/ is also deleted there, it took 1.5 GB of the home disk), then the shader libraries, the add-on content (the RomFS extracted from the player's DLC NSPs, one folder per index:
 # the app sets DM_AOC_DIR at launch, the host reports them as owned and mounts them from it) and the RomFS
-rm -rf "$APP/msl" "$O/Payload" "$O/out.ipa"   # (the last two: what the copy-and-zip packing left behind)
+rm -rf "$APP/msl" "$APP/system-data" "$O/Payload" "$O/out.ipa"   # stale copied resources must not enter a new unsigned package
 P=Payload/DmIOS.app; MAPS=("$P=$APP" "$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR")
 if [ -n "$AOC" ] && [ -d "$AOC" ]; then MAPS+=("$P/aoc=$AOC"); t "add-on content: $(ls "$AOC" | tr '\n' ' ')"; fi
 MAPS+=("$P/romfs=$ROMFS")
+if [ -n "${DM_SYSTEM_DATA:-}" ]; then MAPS+=("$P/system-data=$DM_SYSTEM_DATA"); fi
 t "pack IPA (already-compressed game files stored, everything else deflated)"
-python3 tools/pack_ipa.py "$OUT_IPA" --store "$(gp zip_store)" --skip $P/_CodeSignature --skip $P/embedded.mobileprovision --skip $P/msl --skip $P/aoc --skip $P/romfs "${MAPS[@]}" || die "pack_ipa"
+python3 tools/pack_ipa.py "$OUT_IPA" --store "$(gp zip_store)" --skip $P/_CodeSignature --skip $P/embedded.mobileprovision --skip $P/msl --skip $P/aoc --skip $P/romfs --skip $P/system-data "${MAPS[@]}" || die "pack_ipa"
 t "done: $OUT_IPA ($(du -h "$OUT_IPA" | cut -f1))"

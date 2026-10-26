@@ -14,7 +14,7 @@ static int fail, count;
 
 static void check_color(int blue, const prog_t *pg, tex_t t[4]) {
     uint64_t same = g_fzc_same, diff = g_fzc_diff;
-    state_reset(); S.prog = pg;
+    state_reset(); S.prog = bind_stages(pg, 3);
     memset(&R, 0, sizeof R); R.has_rt = 1; R.rt.n = 4;
     for (int i = 0; i < 4; i++) R.rt.color[i] = &t[i];
     R.clear_c[3] = 1; R.cc[3] = MTLClearColorMake(!blue, 0, blue, 1);
@@ -48,6 +48,8 @@ int main(void) { @autoreleasepool {
     prog_t pg = {.serial = 100}; serial_put(pg.serial, pr);
     tex_t t[4] = {0};
     for (int i = 0; i < 4; i++) { t[i].magic = MAGIC('T', 'E', 'X', 0); t[i].serial = 101 + i; t[i].d.width = t[i].d.height = 16;
+        // Independent attachments need distinct storage identities as well as serials.
+        t[i].off = (int64_t)t[i].serial * 65536;
         t[i].d.depth = t[i].d.levels = t[i].d.samples = 1; t[i].d.target = NVN_TEXTURE_TARGET_2D; t[i].d.format = NVN_FORMAT_RGBA8; }
     check_color(0, &pg, t); check_color(1, &pg, t);
     printf("== %d checks, %d failed ==\n", count, fail); return fail != 0;

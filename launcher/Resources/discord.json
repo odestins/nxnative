@@ -1,0 +1,6 @@
+{
+  "applicationID": "1560449870496792729",
+  "redirectURI": "discord-1560449870496792729:/authorize/callback",
+  "sdkVersion": "1.10.19337",
+  "guestEndpoint": "https://switch-guest-chat.stanleyodestin.workers.dev/v1/guest-token"
+}

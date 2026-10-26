@@ -1,0 +1,41 @@
+# Local native port profile. Validation and limitations: docs/native-game-ports.md.
+
+# ---- Identity ----
+title_id	0100AC601DCA8000
+program_id	0100AC601DCA8000
+
+# ---- App ----
+name	GYLT
+ipa	Gylt.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v131072	1.2	main=4584432786f462dbae0e2c0bb8e0523e	subsdk0=220d36873cbb6d5dc39a9a37127ea80d	sdk=a5cb2175cad2ca2afdd4c13577dbd079
+package	v131072
+shader_versions	v131072
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	Gylt/Content/Paks/Gylt-Switch.ucas
+zip_store	.pak:.ttf:.ucas:.utoc:.metallib
+
+# ---- Memory ----
+# 3.75 GiB reservation, 3.125 GiB alias, 256 MiB stack. Exact-build cuts bound the VA region to 2 GiB and replace Binned3 with the host allocator.
+mem_reserve	0xf0000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 80 MB of system resource
+sys_resource	0x5000000
+
+# ---- Shader split ----
+# the decoded shader code archives: the engine's global shaders and the game's material shaders
+shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
+shader_note	GYLT shaders (provisional profile)
+
+# ---- Heap check on the Mac ----
+mem_alias	0xc8000000
+
+
+# Full controls: both sticks, D-pad, triggers and stick clicks.
+pad_layout	full

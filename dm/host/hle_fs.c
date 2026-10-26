@@ -54,6 +54,9 @@ static _Atomic int g_save_poison;
 static void save_poison(int e) { int z = 0; atomic_compare_exchange_strong(&g_save_poison, &z, e ? e : EIO); }
 // The default weak implementation only logs (Mac); the iOS front end provides a strong implementation of the same name that shows a native alert. Called on the game thread, the front end switches to the main thread itself
 __attribute__((weak)) void front_save_failed(int err) { LOG("front_save_failed(errno=%d): no front end attached (default weak implementation)", err); }
+// iOS captures a copy-on-write checkpoint while the save is still protected by
+// g_lock. The weak Mac implementation does no work and never accesses iCloud.
+__attribute__((weak)) void dm_cloud_save_committed(const char *path) { (void)path; }
 // DM_FSLOG=<file>: each ReadFile logs one TSV line "seconds since boot\tguest path\toffset\tlength\tguest buffer address" (which bytes boot read, for offline reverse lookup against the manifest)
 static FILE *g_fslog; static char *g_fdpath[4096]; static pthread_mutex_t g_fslog_lock = PTHREAD_MUTEX_INITIALIZER;
 static void fslog_init(void) { static int done; if (done) return; done = 1; const char *e = getenv("DM_FSLOG"); if (e && !(g_fslog = fopen(e, "w"))) die("cannot open DM_FSLOG %s", e); if (g_fslog) setvbuf(g_fslog, NULL, _IOLBF, 0); }   // line-buffered: runs end at the time-limit alarm or a crash, which never flush stdio
@@ -373,6 +376,12 @@ HLE_FORCE("_ZN2nn2fs17MountAddOnContentEPKciPvm", "fsp-srv; add-on content → D
 int dm_mii_standin(const char *dir);
 static int sysdata_dir(char *dir, size_t n, uint64_t id) {
     char t[1024];
+    const char *provided = getenv("DM_SYSTEM_DATA");
+    if (provided && *provided) {
+        struct stat st;
+        int len = snprintf(dir, n, "%s/%016llx", provided, (unsigned long long)id);
+        if (len > 0 && (size_t)len < n && !stat(dir, &st) && S_ISDIR(st.st_mode)) return 1;
+    }
     if (id != SYSDATA_MIIMODEL || snprintf(dir, n, "%s_sysdata/%016llx", envdir("DM_TEMP", "run/platform/temp", t, sizeof t), (unsigned long long)id) >= (int)n) return 0;
     return dm_mii_standin(dir);
 }
@@ -381,7 +390,7 @@ HLE_FORCE("_ZN2nn2fs29QueryMountSystemDataCacheSizeEPmNS_3ncm12SystemDataIdE", "
     *out = sysdata_dir(dir, sizeof dir, id) ? romfs_work_size(dir) : 0x1000;
     return RES_OK;
 }
-HLE_FORCE("_ZN2nn2fs15MountSystemDataEPKcNS_3ncm12SystemDataIdEPvm", "fsp-srv; system data: the host's MiiModel stand-in, nothing else", Result, h_fs_MountSysData, const char *name, uint64_t id, void *cache, size_t sz) {
+HLE_FORCE("_ZN2nn2fs15MountSystemDataEPKcNS_3ncm12SystemDataIdEPvm", "fsp-srv; supplied system resources with a MiiModel stand-in fallback", Result, h_fs_MountSysData, const char *name, uint64_t id, void *cache, size_t sz) {
     (void)cache; (void)sz; char dir[1024];
     if (!sysdata_dir(dir, sizeof dir, id)) { LOG("[RED] fs mount system data %s: the host has no %016llx", name, (unsigned long long)id); return RES_TARGET_NOT_FOUND; }
     return mount(name, dir, 1);
@@ -527,6 +536,7 @@ static Result commit_mount_locked(int i, int *notify_error) {
     static int n; if (r == RES_OK) { uint64_t tc2 = clock_gettime_nsec_np(CLOCK_MONOTONIC);
         LOG("save commit #%d: %s swapped atomically into %s (%d save writes so far) (clone + swap %llu us, since this transaction's first write %llu us)", ++n, g_mnt[i].dir, g_mnt[i].commit, atomic_load(&g_save_writes),
             (unsigned long long)((tc2 - tc1) / 1000), (unsigned long long)(tw0 ? (tc2 - tw0) / 1000 : 0)); atomic_fetch_add(&g_save_commits, 1);
+        dm_cloud_save_committed(g_mnt[i].commit);
     }
     return r;
 }

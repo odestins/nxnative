@@ -6,11 +6,15 @@
 #include <stdio.h>
 #include <unistd.h>
 #include "game_profile.h"   // game profile constants (the RomFS marker path)
+#import "LauncherLink.h"
 
 int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
 void dm_host_preload_start(int argc, char **argv);
 UIViewController *front_ios_root(void);
 void front_ios_focus_event(int ev);
+void front_ios_set_performance_hud(BOOL enabled);
+void dm_launcher_set_performance_hud(BOOL enabled);
+void dm_cloud_request_restore(const char *snapshot_id);
 
 static char *g_argv[4]; static int g_argc;
 
@@ -49,7 +53,14 @@ static int boot_env(void) {
         }
     }
     setenv("DM_ENV_FILE_KEYS", [from_file componentsJoinedByString:@" "].UTF8String, 1);   // the launcher keeps what an env file set (Launcher.swift)
-    if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) setenv("MTL_HUD_ENABLED", "1", 0);   // Metal reads it when the process makes its first device (the early loading below may make it)
+    // Enable the HUD facility before the first Metal device; the layer's public
+    // developerHUDProperties controls visibility, including while resuming a game.
+    // Load the last per-game choices for direct app launches as well.
+    for (NSString *key in @[@"DM_METAL_HUD", @"DM_SHOW_FPS"]) {
+        NSString *saved = [NSUserDefaults.standardUserDefaults stringForKey:[@"launcher." stringByAppendingString:key]];
+        if (!getenv(key.UTF8String) && ([saved isEqualToString:@"0"] || [saved isEqualToString:@"1"])) setenv(key.UTF8String, saved.UTF8String, 0);
+    }
+    setenv("MTL_HUD_ENABLED", "1", 1);
     // Game language (nn::oe::GetDesiredLanguage, hle_oe.c): the one the IPA was packed with (the NSP script's LANGUAGE / --language → DMLanguage in Info.plist), unless an env file sets DM_LANG
     // (or the launcher, which replaces this default before the game starts)
     NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
@@ -67,6 +78,8 @@ static int boot_env(void) {
     setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
     NSString *aoc = [res stringByAppendingPathComponent:@"aoc"];   // add-on content: build_ipa.sh puts the RomFS extracted from the player's DLC NSPs at <App>/aoc/<index>/
     if ([fm fileExistsAtPath:aoc]) setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0);
+    NSString *systemData = [res stringByAppendingPathComponent:@"system-data"];
+    if ([fm fileExistsAtPath:systemData]) setenv("DM_SYSTEM_DATA", systemData.fileSystemRepresentation, 0);
     chdir(doc.fileSystemRepresentation);
     g_argv[0] = strdup("dmhost"); g_argv[1] = strdup(dm.fileSystemRepresentation); g_argc = 2;
     dm_host_preload_start(g_argc, g_argv);   // Module tables / relocation / takeover run early in the background, in parallel with UIKit startup (and the launcher: the settings it sets are read when the game starts)
@@ -102,10 +115,28 @@ int front_ios_boot_ok(void) { return g_boot_ok; }
 @property (strong, nonatomic) UIWindow *window;
 @end
 @implementation SceneDelegate
+- (void)applyLauncherURL:(NSURL *)url {
+    NSArray *types = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleURLTypes"];
+    NSString *scheme = [types.firstObject[@"CFBundleURLSchemes"] firstObject];
+    NSString *restore = dm_launcher_restore_value(url, scheme);
+    if (restore) dm_cloud_request_restore(restore.UTF8String);
+    NSNumber *value = dm_launcher_hud_value(url, scheme);
+    if (!value) return;
+    NSString *setting = value.boolValue ? @"1" : @"0";
+    for (NSString *key in @[@"DM_METAL_HUD", @"DM_SHOW_FPS"]) {
+        [NSUserDefaults.standardUserDefaults setObject:setting forKey:[@"launcher." stringByAppendingString:key]];
+    }
+    front_ios_set_performance_hud(value.boolValue);
+    dm_launcher_set_performance_hud(value.boolValue);
+}
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
+    for (UIOpenURLContext *context in o.URLContexts) [self applyLauncherURL:context.URL];
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     self.window.rootViewController = front_ios_root();
     [self.window makeKeyAndVisible];
+}
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)contexts {
+    for (UIOpenURLContext *context in contexts) [self applyLauncherURL:context.URL];
 }
 - (void)sceneWillResignActive:(UIScene *)s { front_ios_focus_event(0); }
 - (void)sceneDidEnterBackground:(UIScene *)s { front_ios_focus_event(1); }

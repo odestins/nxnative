@@ -135,13 +135,40 @@ class ResourceStagingTests(unittest.TestCase):
                     arguments = ['gen_resources.py', str(ios), str(romfs), 'marker', str(shader), chain, str(aoc), str(root / 'dd'), str(chain_h)]
                     with patch.object(sys, 'argv', arguments):
                         gen_resources.main()
+                    # Finder metadata on an existing build must not break the
+                    # next CodeSign; stripping it must preserve resource bytes.
+                    xattr = Path('/usr/bin/xattr')
+                    if app.exists() and xattr.exists():
+                        subprocess.run([str(xattr), '-wx', 'com.apple.FinderInfo',
+                                        '01' + '00' * 31, str(app)], check=True)
+                        subprocess.run([str(xattr), '-w', 'com.apple.ResourceFork',
+                                        'fixture', str(app / 'romfs/marker')], check=True)
                     result = subprocess.run(['bash', str(REPO / 'dm/ios/tools/stage_resources.sh')],
                                             env=environment, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
+                    if xattr.exists():
+                        attributes = subprocess.run([str(xattr), '-lr', str(app)],
+                                                    capture_output=True, text=True, check=True).stdout
+                        self.assertNotIn('com.apple.FinderInfo', attributes)
+                        self.assertNotIn('com.apple.ResourceFork', attributes)
                     self.assertEqual((app / 'romfs/marker').read_text(), 'game')
                     self.assertEqual((app / 'msl' / chain / 'fixture.metallib').read_text(), chain)
                     self.assertEqual([p.name for p in (app / 'msl').iterdir()], [chain])
                     self.assertEqual((app / 'aoc/1/content').read_text(), 'dlc')
+            # Optional system resources are copied and stale versions disappear when deselected.
+            system_data = root / 'firmware/system-data'
+            (system_data / '0100000000000802').mkdir(parents=True)
+            (system_data / '0100000000000802/fixture').write_text('system resource')
+            with patch.object(sys, 'argv', arguments), patch.dict(os.environ, DM_SYSTEM_DATA=str(system_data)):
+                gen_resources.main()
+            result = subprocess.run(['bash', str(REPO / 'dm/ios/tools/stage_resources.sh')], env=environment, capture_output=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual((app / 'system-data/0100000000000802/fixture').read_text(), 'system resource')
+            with patch.object(sys, 'argv', arguments), patch.dict(os.environ, DM_SYSTEM_DATA=''):
+                gen_resources.main()
+            result = subprocess.run(['bash', str(REPO / 'dm/ios/tools/stage_resources.sh')], env=environment, capture_output=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertFalse((app / 'system-data').exists())
             # Sources moved to another shader chain since preparing: stop before copying anything.
             arguments = ['gen_resources.py', str(ios), str(romfs), 'marker', str(shaders / 'b-fixture'), 'b-fixture', str(aoc), str(root / 'dd'), str(chain_h)]
             with patch.object(sys, 'argv', arguments):

@@ -11,6 +11,8 @@ GAME_H = ../../host/gen/$(GAME)/game_profile.h
 CFLAGS=-O1 -g -Wall -Wno-unused-function -I../nvn/include -I$(dir $(GAME_H))
 GFX=$(filter-out ../nvn/hle_nvn.c,$(sort $(wildcard ../nvn/*.c ../nvn/*.m ../nvn/*.S ../tex/*.c ../tex/*.m)))
 GFX_H=$(wildcard ../nvn/*.h ../nvn/*.inc ../nvn/include/*.h ../tex/*.h) $(GAME_H)
+# These tests also need reflection JSON extracted from game shader caches.
+GAME_FIXTURE_TESTS ?= t_refl t_rt_range_ro
 .DEFAULT_GOAL := t_nvn   # the profile header rule comes first, so keep the default goal as before
 $(GAME_H):
 	$(MAKE) -C ../../host game_profile GAME=$(GAME)
@@ -35,6 +37,9 @@ t_deswz_gpu: t_deswz_gpu.m ../tex/nvn_deswizzle.c ../tex/nvn_deswizzle_gpu.m ../
 	clang $(CFLAGS) -fobjc-arc -o $@ t_deswz_gpu.m ../tex/nvn_deswizzle.c ../tex/nvn_deswizzle_gpu.m ../nvn/nvn_tex.c -framework Metal -framework Foundation
 t_refl: t_refl.m ../nvn/nvn_refl.m ../nvn/nvn_refl.h ../nvn/dmsh_chain.h
 	clang -O1 -g -Wall -I../nvn -fobjc-arc -o $@ t_refl.m ../nvn/nvn_refl.m -framework Metal -framework Foundation
+
+t_refl_limits: t_refl_limits.m ../nvn/nvn_refl.m ../nvn/nvn_refl.h
+	clang -O1 -g -Wall -I../nvn -fobjc-arc -o $@ t_refl_limits.m ../nvn/nvn_refl.m -framework Metal -framework Foundation
 t_hmap: t_hmap.c ../nvn/nvn_hmap.h
 	clang -O1 -Wall -o $@ t_hmap.c
 t_cover: t_cover.c ../nvn/nvn_cover.h
@@ -45,12 +50,26 @@ t_fstep: t_fstep.c ../nvn/nvn_fstep.h
 	clang -O1 -Wall -o $@ t_fstep.c
 t_fuse_check: t_fuse_check.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_fuse_check.m $(MTL_T_SRC) $(FW)
+t_readback: t_readback.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_readback.m ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(filter-out ../nvn/nvn_mtl.m,$(GFX)) $(FW)
+.PHONY: check_t_readback
+check_t_readback: t_readback
+	MTL_DEBUG_LAYER=1 ./t_readback
+run: check_t_readback
 t_present_crop: t_present_crop.m ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(GFX) $(GFX_H)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_present_crop.m ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(filter-out ../nvn/nvn_mtl.m,$(GFX)) $(FW)
 t_reorder_chain: t_reorder_chain.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_reorder_chain.m $(MTL_T_SRC) $(FW)
 t_defer_chain: t_defer_chain.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_defer_chain.m $(MTL_T_SRC) $(FW)
+t_upload_slots: t_upload_slots.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_upload_slots.m $(MTL_T_SRC) $(FW)
+t_present_rescue: t_present_rescue.m t_present_rescue_focus.c $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_present_rescue.m t_present_rescue_focus.c $(MTL_T_SRC) $(FW)
+.PHONY: check_t_present_rescue
+check_t_present_rescue: t_present_rescue
+	MTL_DEBUG_LAYER=1 ./t_present_rescue --metal
+run: check_t_present_rescue
 t_zskip: t_zskip.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_zskip.m $(MTL_T_SRC) $(FW)
 t_xv: t_xv.m $(MTL_T_DEP)
@@ -77,12 +96,27 @@ t_view_swizzle: t_view_swizzle.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_view_swizzle.m $(MTL_T_SRC) $(FW)
 t_view_levels: t_view_levels.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_view_levels.m $(MTL_T_SRC) $(FW)
+t_upload_budget: t_upload_budget.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_upload_budget.m $(MTL_T_SRC) $(FW)
+check_t_upload_budget: t_upload_budget
+	MTL_DEBUG_LAYER=1 ./t_upload_budget
+	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_upload_budget
+run: check_t_upload_budget
+.PHONY: check_t_upload_budget
+t_linear_readback: t_linear_readback.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_linear_readback.m ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(filter-out ../nvn/nvn_mtl.m,$(GFX)) $(FW)
+.PHONY: check_t_linear_readback
+check_t_linear_readback: t_linear_readback
+	MTL_DEBUG_LAYER=1 ./t_linear_readback
+run: check_t_linear_readback
 t_pfv: t_pfv.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_pfv.m $(MTL_T_SRC) $(FW)
 # The Vulkan layer (#included) over the whole NVN layer, whose device and present path it uses
 t_vk_desc: t_vk_desc.m ../vk/hle_vk.m $(MTL_T_DEP)
 	clang $(CFLAGS) -I../../third_party/vulkan-headers/include -fobjc-arc -o $@ t_vk_desc.m $(MTL_T_SRC) ../nvn/nvn_mtl.m $(FW)
-run: t_nvn t_dirty_slots t_dirty_race t_builtin t_vin t_tbuf2d t_deswz_gpu t_pace t_fstep t_refl t_hmap t_cover t_fuse_check t_present_crop t_reorder_chain t_defer_chain t_zskip t_xv t_ub t_vbuf t_geometry t_mip_extent t_rt_range_shape t_rt_range_ro t_rt_range t_rt_depth_ro t_pso_skey t_pfv t_view_levels t_view_swizzle t_vk_desc
+run: t_upload_slots t_refl_limits t_nvn t_dirty_slots t_dirty_race t_builtin t_vin t_tbuf2d t_deswz_gpu t_pace t_fstep t_hmap t_cover t_fuse_check t_present_crop t_reorder_chain t_defer_chain t_zskip t_xv t_ub t_vbuf t_geometry t_mip_extent t_rt_range_shape t_rt_range t_rt_depth_ro t_pso_skey t_pfv t_view_levels t_view_swizzle t_vk_desc $(GAME_FIXTURE_TESTS)
+	MTL_DEBUG_LAYER=1 ./t_upload_slots
+	MTL_DEBUG_LAYER=1 ./t_upload_slots --inline
 	./t_nvn
 	./t_dirty_slots
 	./t_dirty_race
@@ -92,7 +126,8 @@ run: t_nvn t_dirty_slots t_dirty_race t_builtin t_vin t_tbuf2d t_deswz_gpu t_pac
 	./t_deswz_gpu
 	./t_pace
 	./t_fstep
-	./t_refl
+	$(if $(filter t_refl,$(GAME_FIXTURE_TESTS)),./t_refl)
+	./t_refl_limits
 	./t_hmap
 	./t_cover
 	./t_fuse_check
@@ -109,7 +144,7 @@ run: t_nvn t_dirty_slots t_dirty_race t_builtin t_vin t_tbuf2d t_deswz_gpu t_pac
 	MTL_DEBUG_LAYER=1 ./t_mip_extent --stencil-only
 	./t_rt_depth_ro
 	./t_rt_range_shape
-	./t_rt_range_ro
+	$(if $(filter t_rt_range_ro,$(GAME_FIXTURE_TESTS)),./t_rt_range_ro)
 	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 ./t_rt_range
 	MTL_DEBUG_LAYER=1 ./t_rt_range   # DontCare on by default: attachment bytes use the closed-form expectation of "one depth-stencil store saved per pass"
 	DM_NVN_UNWRITTEN_DC=0 MTL_DEBUG_LAYER=1 ./t_rt_range --disabled
@@ -122,3 +157,8 @@ run: t_nvn t_dirty_slots t_dirty_race t_builtin t_vin t_tbuf2d t_deswz_gpu t_pac
 	MTL_DEBUG_LAYER=1 ./t_vk_desc
 	DM_GAME=$(GAME) python3 test_tbdr_budget.py
 .PHONY: run
+
+# Full synthetic suite on the local Metal device; no extracted game files needed.
+run-self-contained:
+	$(MAKE) GAME=$(GAME) GAME_FIXTURE_TESTS= run
+.PHONY: run-self-contained

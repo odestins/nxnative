@@ -173,8 +173,27 @@ static void translated(const char *directory) {
     }
     mtl_pool_del(uniforms);mtl_drain();free(uniforms);
 }
+static void stage_binding(void) {
+    id<MTLLibrary> lib = library(@"#include <metal_stdlib>\nusing namespace metal; kernel void placeholder() {}\n");
+    NvProg *pr = [NvProg new];
+    for (int st=0; st<5; st++) { pr->sh[st]=[NvShader new]; pr->sh[st]->stage=st; pr->sh[st]->fn=[lib newFunctionWithName:@"placeholder"]; }
+    static prog_t p; p.magic=MAGIC('P','R','O','G'); p.serial=nvn_new_serial(); serial_put(p.serial,pr);
+    memset(S.bst,0,sizeof S.bst);
+    EXPECT("all graphics stages use original program",1,bind_stages(&p,31)==&p);
+    const prog_t *bound=bind_stages(NULL,28); NvProg *filtered=prog_get(bound);
+    EXPECT("unbound optional stages require filtered program",1,bound!=&p);
+    EXPECT("vertex survives stage unbind",1,filtered->sh[0]==pr->sh[0]);
+    EXPECT("fragment survives stage unbind",1,filtered->sh[1]==pr->sh[1]);
+    for(int st=2;st<5;st++) EXPECT("optional stage stays unbound",1,filtered->sh[st]==nil);
+    filtered=prog_get(bind_stages(&p,4));
+    EXPECT("geometry can be rebound alone",1,filtered->sh[2]==pr->sh[2]);
+    EXPECT("geometry rebind does not reactivate tessellation",1,filtered->sh[3]==nil && filtered->sh[4]==nil);
+    EXPECT("all stages restored uses original program",1,bind_stages(&p,24)==&p);
+    memset(S.bst,0,sizeof S.bst); S.prog=NULL;
+}
+
 int main(int argc,char **argv) {@autoreleasepool {
-    setvbuf(stdout,NULL,_IONBF,0);assembly();mtl_init();pack_test();for(int mode=0;mode<7;mode++)replay(mode);
+    setvbuf(stdout,NULL,_IONBF,0);assembly();mtl_init();stage_binding();pack_test();for(int mode=0;mode<7;mode++)replay(mode);
     if(argc>1)translated(argv[1]);
     printf("t_geometry: %d checks, %d failed\n",checks,failed);return failed!=0;
 }}

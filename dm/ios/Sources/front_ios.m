@@ -14,8 +14,10 @@ void dm_gamepad_reset(void);
 void front_ios_boot(void);
 int front_ios_boot_ok(void);
 bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
+bool dm_cloud_prepare(void *view_controller, void (*done)(void));
 
 static CAMetalLayer *g_layer;
+static NSTimer *g_fps_timer;
 static void front_ios_power_watch(void);
 static void front_ios_audio_watch(void);
 static UILabel *front_ios_fps_label(void);
@@ -46,9 +48,11 @@ static UILabel *front_ios_fps_label(void);
 @property (nonatomic, strong) UILabel *fps;
 @property (nonatomic) BOOL launched;
 - (void)startGame;
+- (void)applyPerformanceHUD;
 @end
 static DmRootVC *g_root;
 static void launcher_done(void) { [g_root startGame]; }
+static void cloud_ready(void) { if (!dm_show_launcher((__bridge void *)g_root, launcher_done)) [g_root startGame]; }
 @implementation DmRootVC
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -70,15 +74,29 @@ static void launcher_done(void) { [g_root startGame]; }
     self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
     [self.view addSubview:self.game];
     g_layer = (CAMetalLayer *)self.game.layer;
-    if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
     self.pad = dm_gamepad_view(self.view.bounds);
     self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:self.pad];
-    self.fps = front_ios_fps_label();   // above the pad, which hides while a controller is connected
-    if (self.fps) [self.view addSubview:self.fps];
+    [self applyPerformanceHUD];
     [self.view setNeedsLayout]; [self.view layoutIfNeeded];
     UIApplication.sharedApplication.idleTimerDisabled = YES;
     front_ios_boot();
+}
+- (void)applyPerformanceHUD {
+    if (!self.game) return;
+    BOOL metal = getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"));
+    g_layer.developerHUDProperties = @{@"mode": metal ? @"default" : @"disabled", @"logging": @"disabled"};
+    const char *fps = getenv("DM_SHOW_FPS");
+    BOOL showFPS = fps ? atoi(fps) != 0 : [[NSBundle.mainBundle objectForInfoDictionaryKey:@"DMShowFPS"] boolValue];
+    if (!showFPS && self.fps) {
+        [g_fps_timer invalidate]; g_fps_timer = nil;
+        [self.fps removeFromSuperview]; self.fps = nil;
+    } else if (showFPS && !self.fps) {
+        self.fps = front_ios_fps_label();
+        if (self.fps) [self.view addSubview:self.fps];
+    }
+    [self.view setNeedsLayout];
+    LOG("front end: performance HUD %s, frame-rate counter %s", metal ? "on" : "off", showFPS ? "on" : "off");
 }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
@@ -95,7 +113,7 @@ static void launcher_done(void) { [g_root startGame]; }
     [super viewDidAppear:a];
     if (self.launched || !front_ios_boot_ok()) return;
     self.launched = YES; g_root = self;
-    if (!dm_show_launcher((__bridge void *)self, launcher_done)) [self startGame];   // the settings screen first (Launcher.swift), when the app has one
+    if (!dm_cloud_prepare((__bridge void *)self, cloud_ready)) cloud_ready();
 }
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
@@ -103,6 +121,13 @@ static void launcher_done(void) { [g_root startGame]; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 @end
 UIViewController *front_ios_root(void) { return [DmRootVC new]; }
+
+void front_ios_set_performance_hud(BOOL enabled) {
+    // Called on the main thread by scene URL handling, for cold and warm launches.
+    setenv("DM_METAL_HUD", enabled ? "1" : "0", 1);
+    setenv("DM_SHOW_FPS", enabled ? "1" : "0", 1);
+    [g_root applyPerformanceHUD];
+}
 
 // Thermal state and screen brightness for the power and present rows every 300 frames (hle_nvn.c; its weak defaults return -1 on the Mac). thermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
 // Brightness is read on the main thread at start and on each change; every change of the thermal state and of Low Power Mode (which lowers the CPU clock) is logged with the time since launch
@@ -130,8 +155,9 @@ static UILabel *front_ios_fps_label(void) {
     l.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightSemibold]; l.textColor = UIColor.whiteColor; l.textAlignment = NSTextAlignmentCenter;
     l.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45]; l.layer.cornerRadius = 6; l.layer.masksToBounds = YES; l.userInteractionEnabled = NO;
     l.text = @"-- fps";
+    l.accessibilityIdentifier = @"performanceFPS";
     __block uint64_t n0 = mtl_present_count(); __block double t0 = CACurrentMediaTime();
-    [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
+    g_fps_timer = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
         (void)t; uint64_t n = mtl_present_count(); double now = CACurrentMediaTime();
         if (now - t0 < 1.5) l.text = [NSString stringWithFormat:@"%.0f fps", (n - n0) / (now - t0)];   // a longer span is the time in the background: no reading
         n0 = n; t0 = now;
@@ -188,11 +214,12 @@ void front_save_failed(int err) {
 
 // Audio session: the frames RemoteIO asks for in each callback follow the I/O buffer duration, about 21 ms by default on iOS (1024 frames at 48 kHz). The game keeps only 4 blocks × 5 ms = 20 ms in flight,
 // so every callback came up 1.3 ms short and was zero-filled, about 47 gaps per second (crackling; reproducible on the Mac by forcing 1024-frame callbacks: 1999 underruns in 2000 callbacks). Ask for 5 ms and the system picks the nearest it supports;
-// the category stays the default SoloAmbient (silent switch and interrupting other apps' audio behave as before). Set once at boot and again on return to the foreground (the system may reset it after an interruption)
+// Ambient keeps silent-switch behavior and mixes with GameChat's background voice.
+// Set once at boot and again on return to the foreground (the system may reset it after an interruption).
 static int g_session_off;   // the last activation failed (another app or a call still held the session): tried again when the app becomes active
 void front_ios_audio_session(void) {
     AVAudioSession *s = AVAudioSession.sharedInstance; NSError *e = nil;
-    if (![s setCategory:AVAudioSessionCategorySoloAmbient error:&e]) LOG("[RED] audio session category could not be set: %s", e.localizedDescription.UTF8String);
+    if (![s setCategory:AVAudioSessionCategoryAmbient error:&e]) LOG("[RED] audio session category could not be set: %s", e.localizedDescription.UTF8String);
     [s setPreferredSampleRate:48000 error:nil];
     if (![s setPreferredIOBufferDuration:0.005 error:&e]) LOG("[RED] audio session I/O buffer duration could not be set: %s", e.localizedDescription.UTF8String);
     g_session_off = ![s setActive:YES error:&e];

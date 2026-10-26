@@ -1,0 +1,45 @@
+# Local native port profile. Validation and limitations: docs/native-game-ports.md.
+
+# ---- Identity ----
+title_id	010044500CF8E000
+program_id	010044500CF8E000
+
+# ---- App ----
+name	Hellblade: Senua's Sacrifice
+ipa	HellbladeSenuasSacrifice.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v65536	1.1.0	main=9b3ddf2fb9100e51feb11867410606ef	subsdk0=1bfa289d84f5608331f88deedf2005c1	sdk=6bfe1085ed54bdf0dcc5d0ea0262b7c3
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	HellbladeGame/Content/Paks/HellbladeGame-Switch.pak
+zip_store	.bk2:.pak:.png:.metallib
+
+# ---- Memory ----
+# 5 GiB reservation and 4.375 GiB alias region; SDK cuts reduce allocator bookkeeping. Removed from the phone at user request; no phone gameplay acceptance.
+game_args	-SwitchVirtualAddressSpaceSize=4064
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 16 MB of system resource
+sys_resource	0x1000000
+
+# ---- Shader split ----
+# the decoded shader code archives: the engine's global shaders and the game's material shaders
+shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
+shader_note	Hellblade: Senua's Sacrifice shaders (provisional profile)
+
+
+# Full controls: both sticks, D-pad, triggers and stick clicks.
+pad_layout	full
+
+# UE4 writes sparse texture contents into CPU-visible pools without packaged layouts.
+# Track CPU writes before first use; render targets retain GPU ownership.
+tex_flush_upload	on
+tex_dirty_upload	on

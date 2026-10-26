@@ -1,5 +1,8 @@
 # iOS project (xcodegen); build_ipa.sh generates Gen/ and the game resource paths first. Xcode stages resources before signing; the unsigned IPA command skips that copy and packs directly from the external drive.
 name: DmIOS
+packages:
+  SwitchSaveSync:
+    path: ${DM_SAVE_SYNC_PACKAGE}
 options:
   bundleIdPrefix: ${DM_BUNDLE_ID}
   deploymentTarget:
@@ -11,6 +14,8 @@ targets:
   DmIOS:
     type: application
     platform: iOS
+    dependencies:
+      - package: SwitchSaveSync
     sources:
       - path: Sources
         excludes: [Info.plist]  # generated per project under Gen/, so games never share the generated plist
@@ -30,6 +35,13 @@ targets:
       path: Gen/Info.plist
       properties:
         CFBundleDisplayName: ${DM_DISPLAY_NAME}   # the game name in the base NSP (set by build_ipa.sh)
+        DMTitleID: ${GAME}
+        DMCloudSaveContainer: ${DM_ICLOUD_CONTAINER}
+        DMCloudSaveEnabled: ${DM_ICLOUD_ENABLED}
+        CFBundleURLTypes:
+          - CFBundleURLName: ${DM_BUNDLE_ID}.launcher
+            CFBundleURLSchemes: ["${DM_LAUNCH_SCHEME}"]
+            CFBundleTypeRole: Viewer
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         UILaunchStoryboardName: ""

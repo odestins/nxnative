@@ -7,3 +7,28 @@ __pycache__/
 # Made from each shader build's Mac outputs (c1_guard.py, cb_extent.py; the NSP script makes them), not committed
 dm/games/*/c1_full.tsv
 dm/games/*/cb_extent.tsv
+
+# reSwitch products and local development state
+launcher/.build/
+launcher/.derived-data/
+launcher/build/
+launcher/*.xcodeproj/
+launcher/*.xcworkspace/
+launcher/.swiftpm/
+launcher/Mac/.build/
+launcher/Mac/.swiftpm/
+launcher/Mac/build/
+launcher/Vendor/
+*.xcuserstate
+xcuserdata/
+outputs/
+.venv/
+*.iswitch
+*.iswitchlibrary
+# User-owned game material must stay outside the source tree.
+*.keys
+*.nsp
+*.xci
+*.nsz
+*.xcz
+*.ipa

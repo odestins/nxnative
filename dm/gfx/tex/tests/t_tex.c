@@ -128,6 +128,22 @@ int main(void) {
               (unsigned long long)nvn_tex_level_offset(&d, 1), (unsigned long long)L.size);
     }
 
+    // Sparse query: a 128x128 RGBA8 tile and a 256x256 BC7 tile both hold 64 KB.
+    // Three 2D mips of 512x512 RGBA8 fit whole tiles; array layers are not depth.
+    {
+        nvn_texdesc d = {4, 0x25, 0x20, 0, 512, 512, 7, 10, 0, 0}; nvn_sparse_layout s; nvn_texlayout L;
+        nvn_tex_sparse_layout(&d, &s); nvn_tex_layout(&d, &L);
+        CHECK(s.levels == 3 && s.width == 128 && s.height == 128 && s.depth == 1, "S RGBA8 array tile query");
+        CHECK(L.tileH == 4 && L.layers == 7 && nvn_tex_level_offset(&d, 3) == 21 * 65536ull, "S sparse mip tail offset and array layers");
+        d.format = 0x4f; nvn_tex_sparse_layout(&d, &s);
+        CHECK(s.levels == 2 && s.width == 256 && s.height == 256 && s.depth == 1, "S compressed BC7 tile query");
+        d = (nvn_texdesc){2, 0x25, 0x20, 0, 64, 64, 32, 7, 0, 0}; nvn_tex_sparse_layout(&d, &s);
+        CHECK(s.levels == 2 && s.width == 32 && s.height == 32 && s.depth == 16, "S 3D RGBA8 tile query");
+        d.flags = 0; nvn_tex_sparse_layout(&d, &s);
+        CHECK(!s.levels && !s.width && !s.height && !s.depth, "S nonsparse query writes all four zero fields");
+        d.flags = 0x20; d.target = 10; nvn_tex_sparse_layout(&d, &s);
+        CHECK(!s.levels && !s.width && !s.height && !s.depth, "S buffer query has no sparse tiles");
+    }
     printf("%s: %d/%d checks passed\n", fails ? "RED" : "all passed", checks - fails, checks);
     return fails ? 1 : 0;
 }

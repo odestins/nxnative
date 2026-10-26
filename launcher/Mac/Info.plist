@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>reSwitch</string>
+<key>CFBundleIdentifier</key><string>com.odestins.switch.mac</string>
+<key>CFBundleName</key><string>reSwitch</string>
+<key>CFBundleDisplayName</key><string>reSwitch</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<key>CFBundleIconFile</key><string>SwitchMac</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSDocumentsFolderUsageDescription</key><string>reSwitch opens the native games you prepared in Documents and keeps their Mac saves beside them.</string>
+<key>NSDownloadsFolderUsageDescription</key><string>reSwitch opens the native games you prepared in Downloads and keeps their Mac saves beside them.</string>
+<key>NSMicrophoneUsageDescription</key><string>Voice chat with friends in reSwitch Chat while you play.</string>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>Chat invitation</string><key>CFBundleURLSchemes</key><array><string>switchchat</string></array></dict></array>
+</dict></plist>

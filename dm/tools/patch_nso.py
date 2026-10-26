@@ -59,9 +59,10 @@ else:
 #   OBS = {build ID: [(offset, number, original instruction word, reason)]}: observation gates. Numbers match OBS_* in the host's hle.h; the original instruction must be position
 #     independent (no PC-relative / branch / anything involving x18 or tpidr), asserted offline; when the host has no callback attached the gate block goes in and out once and returns
 #   FRAME_STEP = {build ID: function(ctx)}: the frame step stubs of a main ("Frame step in whole vsyncs" below)
+#   STUBS = {build ID: function(ctx)}: code-only stubs, including modules with a patch area before the base. ctx.here/emit/site/put work as for FRAME_STEP, without a state page
 PATCH_FILES = [os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sdk_patches.py')] + sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../games/*/patches.py')))
 def load_patches():
-    tables, where = {'CUTS': {}, 'OBS': {}, 'FRAME_STEP': {}}, {}
+    tables, where = {'CUTS': {}, 'OBS': {}, 'FRAME_STEP': {}, 'STUBS': {}}, {}
     for n, path in enumerate(PATCH_FILES):
         spec = importlib.util.spec_from_file_location(f'patches_{n}', path); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
         for kind, table in tables.items():
@@ -532,6 +533,15 @@ def jump_offsets(insl, j, copy_first=False, far_base=False):
         m = re.fullmatch(r'(w\d+), (w\d+)', p.op_str) if p.mnemonic == 'mov' else None
         if m and m.group(1) in idx: idx.add(m.group(2)); continue
         m = re.fullmatch(r'([wx]\d+), ([wx]\d+), #(0x[0-9a-f]+|\d+)', p.op_str) if p.mnemonic == 'and' else None
+        # A 64-bit AND with 0xffffffff copies the checked 32-bit index unchanged.
+        # Mario Tennis Aces main+0x358370 zero-extends x8 into x18 after cmp w8,#4.
+        # Require the adjacent compare/unsigned bounds branch, so a stale source
+        # or unrelated earlier comparison cannot be mistaken for this check.
+        if m and m.group(1).startswith('x') and wname(m.group(1)) in idx and int(m.group(3), 0) == 0xffffffff:
+            if i >= 2 and ctx[i - 1].mnemonic == 'b.hi' and ctx[i - 2].mnemonic == 'cmp' and \
+               re.fullmatch(rf'{wname(m.group(2))}, #(0x[0-9a-f]+|\d+)', ctx[i - 2].op_str):
+                cmp = ctx[i - 2]; break
+            return None
         if m and wname(m.group(1)) in idx and masked is None: masked = (wname(m.group(2)), int(m.group(3), 0), i); continue
         m = re.fullmatch(r'(w\d+), #(0x[0-9a-f]+|\d+)', p.op_str) if p.mnemonic == 'cmp' else None
         if not m: continue
@@ -806,15 +816,18 @@ for a in sorted(kinds):
     put_branch(a, st)
 
 def scratch_dead(off):
-    """x9–x17 carry nothing at off: from off on, every one of them is written before it is read, up to a bl (a call clobbers them all; DRAGON QUEST VII Reimagined's gate sits on the
-    mov x0, x19 before one). Only straight-line code is followed: a branch, a blr or a ret before the bl answers no"""
+    """x9–x17 carry nothing at off: each is written before it is read, up to a
+    call or return. Both boundaries permit these AAPCS64 caller-saved registers
+    to be clobbered. Only straight-line code is followed; indirect calls and
+    branches are not proven safe here."""
     written = set()
     for a in range(off, min(off + 4 * 16, TEXT_END), 4):
         ins = dis(struct.unpack_from('<I', IMG, a)[0], a)
         if ins.mnemonic == 'bl': return True
-        if ins.mnemonic in ('b', 'br', 'blr', 'ret', 'cbz', 'cbnz', 'tbz', 'tbnz') or ins.mnemonic.startswith('b.'): return False
+        if ins.mnemonic in ('b', 'br', 'blr', 'cbz', 'cbnz', 'tbz', 'tbnz') or ins.mnemonic.startswith('b.'): return False
         rd, wr = regset(ins)
         if any(9 <= (num(r) or -1) <= 17 and num(r) not in written for r in rd): return False
+        if ins.mnemonic == 'ret': return True
         written |= {num(r) for r in wr}
     return False
 
@@ -823,11 +836,31 @@ for off, oid, ow, why in obs:
     w = struct.unpack_from('<I', IMG, off)[0]
     assert f'{w:08x}' == ow, f'observation gate original instruction mismatch {off:#x}: {w:08x}'
     # Function entries, or the instruction right after a bl, only: dm_gate writes back only x0–x8 / x30, and host C code may modify x9–x17; at entry these carry no values under AAPCS64 (arguments are only in x0–x7 / x8),
-    # and right after a call returns the callee was free to clobber them anyway (x16 / x17 are the veneer registers). Elsewhere, where the code ahead reads none of them before its next bl
+    # and right after a call returns the callee was free to clobber them anyway (x16 / x17 are the veneer registers). Elsewhere, prove there are no live scratch-register reads before the next call or return.
     after_bl = off >= 4 and struct.unpack_from('<I', IMG, off - 4)[0] >> 26 == 0x25
-    assert off in set(starts) or after_bl or scratch_dead(off), f'observation gate neither at a function entry, after a bl nor before a call with x9–x17 unread {off:#x}'
+    assert off in set(starts) or after_bl or scratch_dead(off), f'observation gate neither at a function entry, after a bl nor before a call/return with x9–x17 unread {off:#x}'
     assert off < TEXT_END and off not in kinds and not any(lo <= off < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'observation gate conflicts with a rewrite site {off:#x}'
     put_branch(off, site_obs(off, oid, w)); stat('obs')
+
+# ---- Registered code-only stubs (no state page; near and far layouts) ----
+if BUILD_ID in PATCHES['STUBS']:
+    stub_sites = set()
+    def stub_site(off, orig):
+        ob = bytes.fromhex(orig)
+        assert off % 4 == 0 and ob and len(ob) % 4 == 0 and 0 <= off < off + len(ob) <= TEXT_END
+        assert IMG[off:off + len(ob)] == ob, f'stub original bytes mismatch {off:#x}: {bytes(IMG[off:off + len(ob)]).hex()}'
+        for o in range(off, off + len(ob), 4):
+            assert o not in kinds and not any(seg[0].address <= o < seg[-1].address + 4 for seg in windows), f'stub site is a rewrite site {o:#x}'
+            assert o not in stub_sites, f'duplicate stub site {o:#x}'
+            stub_sites.add(o)
+    def stub_put(off, words, why):
+        assert words and why and all(o in stub_sites for o in range(off, off + 4 * len(words), 4)), f'unchecked stub site {off:#x}'
+        old = bytes(IMG[off:off + 4 * len(words)])
+        for i, w in enumerate(words):
+            struct.pack_into('<I', IMG, off + 4 * i, w); stub_sites.remove(off + 4 * i)
+        cuts.append((off, old.hex(), bytes(IMG[off:off + 4 * len(words)]).hex(), why)); stat('stub')
+    PATCHES['STUBS'][BUILD_ID](types.SimpleNamespace(here=here, emit=emit, site=stub_site, put=stub_put))
+    assert not stub_sites, 'checked stub sites left unwritten'
 
 # ---- Frame step in whole vsyncs (the mains whose patch file has FRAME_STEP: The Legend of Zelda: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0
 # and Paper Mario: The Thousand-Year Door 1.0.1; host only) ----

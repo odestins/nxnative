@@ -33,6 +33,11 @@ static const struct { const char *build, *what; int layout; uint64_t obj, vtable
     { "9fe60a212cff9b9a3656ab63d4f882e5", "Octopath Traveler 0 1.0.5", UE5, 0x68022c8, 0x5b06f38, 0x12e40 },
     // DRAGON QUEST VII Reimagined 1.2.0: no fixed object (0: made by GCreateMalloc, given at the gate), its vtable (main+0x5e4c0e8, 21 slots), the cut constructor call (main+0x32758dc)
     { "f7ec03e4cb9de3bd8319d4e899d2e9cc", "DRAGON QUEST VII Reimagined 1.2.0", UE4_27, 0, 0x5e4c0e8, 0x32758dc },
+    // GYLT 1.2: BaseAllocator allocates 0x1c38 bytes and calls Binned3's
+    // constructor at main+0xb45290. The 21-slot vtable matches UE4_27; the
+    // descriptive-name slot returns "Binned3" at main+0xb4726c. Startup otherwise
+    // maps through +39 GB, even though physical memory stays below 1 GB.
+    { "4584432786f462dbae0e2c0bb8e0523e", "GYLT 1.2", UE4_27, 0, 0x6096770, 0xae2ad8 },
     // FINAL FANTASY RESONANCE 1.0.1: the FMallocBinned3 object (main+0x77c6210, bss), its vtable (main+0x67df800, 32 slots), the cut constructor call (main+0x137f0)
     { "84e182f72ee1da4f477804bd05b54c15", "FINAL FANTASY RESONANCE 1.0.1", UE5_6, 0x77c6210, 0x67df800, 0x137f0 },
 };

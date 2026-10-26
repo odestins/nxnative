@@ -14,6 +14,8 @@ typedef struct {
     unsigned tileH, tileD;                // Block height / block depth (log2 of the GOB count)
 } nvn_texlayout;
 
+typedef struct { int levels, width, height, depth; } nvn_sparse_layout;
+void nvn_tex_sparse_layout(const nvn_texdesc *d, nvn_sparse_layout *o);
 void nvn_tex_layout(const nvn_texdesc *d, nvn_texlayout *o);
 uint64_t nvn_tex_level_offset(const nvn_texdesc *d, unsigned level);
 uint32_t nvn_tex_level_gobs(const nvn_texdesc *d, unsigned level);   // GOB columns level `level` is laid out with (its width in GOBs; padded to whole 64 KB tiles in a sparse texture's tiled levels)

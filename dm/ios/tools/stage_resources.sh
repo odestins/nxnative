@@ -13,6 +13,7 @@ case "$APP" in /*.app) ;; *) die "Unexpected app resource destination: $APP";; e
 [ -e "$DM_RESOURCE_ROMFS/$DM_RESOURCE_MARKER" ] || die "Game files unavailable: $DM_RESOURCE_ROMFS/$DM_RESOURCE_MARKER"
 [ -d "$DM_RESOURCE_SHADERS" ] || die "Shader libraries unavailable: $DM_RESOURCE_SHADERS"
 [ -z "$DM_RESOURCE_AOC" ] || [ -d "$DM_RESOURCE_AOC" ] || die "Add-on content unavailable: $DM_RESOURCE_AOC"
+[ -z "${DM_RESOURCE_SYSTEM_DATA:-}" ] || [ -d "$DM_RESOURCE_SYSTEM_DATA" ] || die "System resources unavailable: $DM_RESOURCE_SYSTEM_DATA"
 # The host is compiled from the repository's current sources and loads only msl/b-<its chain version>: after a chain change (a pull, dmsh_chain.py --header) the prepared shaders are another chain's
 case "$DM_RESOURCE_MSLDIR" in b-*)
     [ -f "$DM_RESOURCE_CHAIN_H" ] || die "No chain version header: $DM_RESOURCE_CHAIN_H (a project prepared before the chain version moved to dm/gfx/nvn: prepare the game again, build_ipa_from_nsp.py --prepare-xcode)"
@@ -31,4 +32,17 @@ if [ -n "$DM_RESOURCE_AOC" ]; then
     /usr/bin/rsync -a --delete -- "$DM_RESOURCE_AOC/" "$APP/aoc/"
 else
     rm -rf "$APP/aoc"
+fi
+if [ -n "${DM_RESOURCE_SYSTEM_DATA:-}" ]; then
+    mkdir -p "$APP/system-data"
+    /usr/bin/rsync -a --delete -- "$DM_RESOURCE_SYSTEM_DATA/" "$APP/system-data/"
+else
+    rm -rf "$APP/system-data"
+fi
+# Finder can attach presentation metadata to a build folder while it is open.
+# CodeSign rejects these two attributes even though the resource bytes are valid.
+# Strip them from the staged app only; leave the user's source files untouched.
+if [ -x /usr/bin/xattr ]; then
+    /usr/bin/xattr -r -d com.apple.FinderInfo "$APP"
+    /usr/bin/xattr -r -d com.apple.ResourceFork "$APP"
 fi

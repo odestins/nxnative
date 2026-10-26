@@ -1,0 +1,19 @@
+{
+  "name": "switch-guest-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "types": "wrangler types",
+    "check": "tsc --noEmit",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261025.1",
+    "@types/node": "^24.0.0",
+    "typescript": "7.0.2",
+    "wrangler": "4.152.0"
+  }
+}

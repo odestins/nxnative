@@ -68,7 +68,41 @@ static void samples_xy(int s, uint32_t *sx, uint32_t *sy) {
 // its 1024×1024 ASTC 6×6 textures (48 GOBs wide instead of 43, level 1 at 0x90000 instead of 0x81000) read 2,183 all-zero blocks in level 0 and 3,043 in level 1, which ASTC
 // decodes as its error colour (magenta clothes)
 enum { SPARSE_TILE = 0x10000 };
-static int sparse_of(const nvn_texdesc *d) { return (d->flags & 0x20) && !(d->flags & 0x10) && d->target != 10; }
+static int sparse_of(const nvn_texdesc *d) {
+    return (d->flags & 0x32) == 0x20 && d->target != 0 && d->target != 3 && d->target != 10 && fmt_of(d->format).bpb != 12;
+}
+// The SDK's sparse query writes exactly four ints, not an opaque object. Verified
+// in SDK 7.3 (6bfe1085...): TextureBuilderGetSparseTileLayout -> sdk+0x400e70.
+// Tiles are fixed 64 KB shapes by format and target; width/height are texels,
+// including compressed block dimensions and MSAA scaling. The first smaller
+// level begins the mip tail. Hellblade uses the count to allocate its mip table.
+static void sparse_tiles(const nvn_texdesc *d, fmt_t t, unsigned *th, unsigned *td) {
+    if (d->target == 2) {
+        *th = t.bpb >= 8 ? 1 : 2;
+        *td = t.bpb >= 4 ? 4 : 5;
+    } else {
+        *th = t.bpb >= 8 ? 3 : t.bpb >= 2 ? 4 : 5;
+        *td = 0;
+    }
+}
+void nvn_tex_sparse_layout(const nvn_texdesc *d, nvn_sparse_layout *o) {
+    *o = (nvn_sparse_layout){0};
+    fmt_t t = fmt_of(d->format);
+    if (!t.bpb || !sparse_of(d)) return;
+    unsigned th, td, dims; int layered; uint32_t w, h, z, sx, sy;
+    sparse_tiles(d, t, &th, &td);
+    shape(d, &dims, &layered, &w, &h, &z);
+    if (dims != 3) z = 1;
+    samples_xy(d->samples, &sx, &sy);
+    o->width = ((128u >> (th + td)) * 64 / t.bpb) * t.bw / sx;
+    o->height = (8u << th) * t.bh / sy;
+    o->depth = 1u << td;
+    unsigned levels = d->levels ? d->levels : 1;
+    for (unsigned l = 0; l < levels && l < 32; l++) {
+        if (mip(w, l) < (unsigned)o->width || mip(h, l) < (unsigned)o->height || mip(z, l) < (unsigned)o->depth) break;
+        o->levels++;
+    }
+}
 // Offset of level `level` from the start of its layer, and the GOB columns it is laid out with (*gobs, may be NULL)
 static uint64_t level_walk(const nvn_texdesc *d, unsigned level, unsigned dpl, uint32_t w, uint32_t h, uint32_t z,
                            unsigned tileH, unsigned tileD, fmt_t t, uint32_t *gobs) {
@@ -114,6 +148,10 @@ void nvn_tex_layout(const nvn_texdesc *d, nvn_texlayout *o) {
     unsigned tileH = 0, tileD = 0;
     if (dpl == 2) { uint32_t ah = blk(h * sy, t.bh); tileH = d->pkg_block_h ? (unsigned)d->pkg_block_h - 1 : pick_tile(ah * 3 / 16); }
     else if (dpl == 3) tileD = pick_tile(z + z / 2);
+    if (sparse_of(d) && !d->pkg_block_h) {
+        nvn_sparse_layout S; nvn_tex_sparse_layout(d, &S);
+        if (S.levels) sparse_tiles(d, t, &tileH, &tileD);
+    }
     o->tileH = tileH; o->tileD = tileD;
     unsigned levels = d->levels ? d->levels : 1;
     uint64_t ls = level_offset(d, levels, dpl, w, h, z, tileH, tileD, t);

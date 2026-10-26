@@ -231,10 +231,18 @@ class Pak:
         the game's own decoder in the Mac host (shader_split.py oodle); Octopath Traveler 0's archives go through the Oodle job instead"""
         e = self.entry(path)
         if not e['method']: return self.read_at(e['off'] + 53, e['size'], e['encrypted'])
+        method = e['method'].lower()
+        if method in ('zlib', 'gzip'):
+            # UE4 can use an encoded (version 11) pak index while keeping its
+            # shaders inline in zlib-compressed cooked packages (Hot Wheels 2).
+            import zlib
+            decode = lambda block, size: zlib.decompress(block, 31 if method == 'gzip' else 15)
         if not decode: raise ValueError(f'{path} is {e["method"]}-compressed in the pak')
         out, left = [], e['raw']
         for s, n in e['blocks']:
-            k = min(left, e['block_size']); out.append(decode(self.read_at(e['off'] + s, n, e['encrypted']), k)); left -= k
+            k = min(left, e['block_size']); block = decode(self.read_at(e['off'] + s, n, e['encrypted']), k)
+            if len(block) != k: raise ValueError(f'{path}: decoded block size {len(block)}, expected {k}')
+            out.append(block); left -= k
         return b''.join(out)
 
 def archive(b):
@@ -403,6 +411,28 @@ def unreal_paks(romfs, legacy=None):
         if legacy is None or (ver in LEGACY) == legacy: out.append(p)
     return out
 
+def shader_paks(romfs):
+    """Return (shader-archive paks, inline-shader paks). Container version alone
+    does not decide shader storage: Hot Wheels 2 has ten version 11 paks with
+    GlobalShaderCache and inline material shaders, no .ushaderbytecode files.
+    Their mounted view must be scanned together. Encrypted indexes keep the
+    archive path, which locates the index key in the game's own main module."""
+    modern, inline = unreal_paks(romfs, legacy=False), unreal_paks(romfs, legacy=True)
+    global_cache, archives, unknown = False, False, False
+    for path in modern:
+        try:
+            pak = Pak(path)
+            try:
+                global_cache |= any(os.path.basename(n).startswith('GlobalShaderCache-') for n in pak.files)
+                archives |= any(n.endswith('.ushaderbytecode') for n in pak.files)
+            finally: pak.f.close()
+        except ValueError:
+            unknown = True
+    if global_cache and not archives and not unknown:
+        return [], inline + modern
+    return modern, inline
+
+
 def job(romfs, main_nso, work, decode=None):
     """The shader code archives of every pak under the RomFS into <work>/archives, and one Oodle job (<work>/oodle.job) of every compressed shader in them; <work>/job.json lists them.
     The shader libraries of IoStore containers (Unreal Engine 5.6, FINAL FANTASY RESONANCE: no archive in the pak) go there already decoded: their container blocks and shader groups are
@@ -418,7 +448,7 @@ def job(romfs, main_nso, work, decode=None):
             name = io_library_name(t, i, names) + '.ushaderbytecode'; b = io_archive(t, i, decode)
             open(os.path.join(work, 'archives', name), 'wb').write(b)
             listing.append(dict(name=name, pak=os.path.relpath(tp, romfs), path=f'chunk {t.ids[i].hex()}', shaders=len(archive(b)['shaders']), compressed=0, compression='IoStore, decoded'))
-    for pak in unreal_paks(romfs, legacy=False):
+    for pak in shader_paks(romfs)[0]:
         with open(pak, 'rb') as f: enc = footer(f)[0]
         if enc and key is None:
             key = find_key(img, lo, hi, pak)
@@ -463,10 +493,10 @@ def lslg(s):
     u32 control length and the control section (0x880 bytes), and a short tail (24 or 29 bytes). → (tag, control section, code area), or None if the layout differs"""
     if s[:4] != b'LSLG': return None
     k = s.find(b'\x34\x12\x76\x98')
-    if k < 8: return None
+    if k < 8 or k + 0x708 > len(s): return None
     nctl, ncode = struct.unpack_from('<I', s, k - 4)[0], struct.unpack_from('<I', s, k + 0x704)[0]
     c = k - 4 - ncode
-    if c < 4 or struct.unpack_from('<I', s, c - 4)[0] != ncode or k + nctl > len(s): return None
+    if nctl < 0x760 or ncode < 0x50 or c < 4 or struct.unpack_from('<I', s, c - 4)[0] != ncode or k + nctl > len(s): return None
     return s[4:6].decode('latin1'), s[k:k + nctl], s[c:c + ncode]
 
 if __name__ == '__main__':

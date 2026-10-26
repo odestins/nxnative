@@ -27,11 +27,11 @@ int main(void) {
     [fill copyFromBuffer:src sourceOffset:0 sourceBytesPerRow:16 sourceBytesPerImage:16 sourceSize:MTLSizeMake(4, 1, 1)
                toTexture:base destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
     enc_b_end(g_blit); g_blit = nil;
-    serial_put(t.serial, base);
+    mtl_tex_init(&t); tex_put(t.serial, base);
     id<MTLTexture> upgraded = tex_upgrade_pfv(&t, base, MTLPixelFormatR32Uint);
     failed += upgraded.pixelFormat != MTLPixelFormatRGBA8Unorm;   // the upgrade keeps the original format
     failed += !(upgraded.usage & MTLTextureUsagePixelFormatView);
-    failed += serial_get(t.serial) != upgraded;   // the registration has been replaced
+    failed += tex_get(t.serial) != upgraded;   // the texture registration has been replaced
     if (g_blit) { enc_b_end(g_blit); g_blit = nil; }
     id<MTLTexture> view = [upgraded newTextureViewWithPixelFormat:MTLPixelFormatR32Uint];
     id<MTLBuffer> dst = [g_dev newBufferWithLength:sizeof bytes options:MTLResourceStorageModeShared];

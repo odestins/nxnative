@@ -9,6 +9,13 @@ CUTS = {
     # Where this differs from hardware is not known (every allocation size before this block is determined by game code and data); for now every resource heap gets +16 KB.
     (0x1e62fc, 'e00317aa', 'e0124091', 'resource heap size: mov x0,x23 → add x0,x23,#0x4000 (ExpHeap::create size argument +16 KB)'),
   ],
+  # Wonder 1.0.1 (v65536): nso_fnmap maps the entire containing function exactly
+  # from v0 0x1e603c to 0x1f65d0. Disassembly confirms x23 is still the size
+  # argument and the following call targets ExpHeap::create at 0x48b134 (v0 0x4aac38).
+  # This carries the existing resource-heap slack fix; it does not certify gameplay.
+  'f91868b88f60d3d59009db3389fde314': [
+    (0x1f6890, 'e00317aa', 'e0124091', 'resource heap size: mov x0,x23 → add x0,x23,#0x4000 (ExpHeap::create size argument +16 KB)'),
+  ],
   # Super Mario Bros. Wonder 1.2.1 (v327680) main: same as above. Location carried over from v0 by dm/tools/nso_fnmap.py (containing function 0x1e603c → 0x1cf6f0 identical after address masking, ExpHeap::create 0x4aac38 → 0x4c4a18)
   'ff773e90972d544eb79406eaa65396d5': [
     (0x1cf9b0, 'e00317aa', 'e0124091', 'resource heap size: mov x0,x23 → add x0,x23,#0x4000 (ExpHeap::create size argument +16 KB)'),

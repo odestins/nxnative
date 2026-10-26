@@ -10,6 +10,8 @@ t_fstep
 .precommit_snap/
 t_refl
 t_refl.dSYM
+t_refl_limits
+t_refl_limits.dSYM/
 t_hmap
 t_cover
 t_fuse_check
@@ -36,6 +38,8 @@ t_pfv
 t_pfv.dSYM/
 t_defer_chain
 t_defer_chain.dSYM/
+t_upload_slots
+t_upload_slots.dSYM/
 t_zskip
 t_zskip.dSYM/
 t_xv
@@ -58,3 +62,19 @@ t_view_swizzle
 t_view_swizzle.dSYM/
 t_vk_desc
 t_vk_desc.dSYM/
+
+t_readback
+
+t_readback.dSYM/
+
+t_linear_readback
+
+t_linear_readback.dSYM/
+
+t_upload_budget
+
+t_upload_budget.dSYM/
+
+t_present_rescue
+
+t_present_rescue.dSYM/

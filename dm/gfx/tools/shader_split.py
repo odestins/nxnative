@@ -89,6 +89,30 @@ def check(where, st, ctl, code):
     if struct.unpack_from('<I', ctl, 0x704)[0] != len(code): return 'control +0x704 does not match the code area length'
     return None
 
+def embedded_nvn_shaders(d, label):
+    """Bare NVN code followed by its control section in a native module.
+
+    Middleware can embed these without a GLSLC container (Hellblade's video
+    shaders). Both lengths, the code header and its stage must agree; incidental
+    control magic and truncated records are ignored.
+    """
+    out = []
+    for m in re.finditer(CTL_MAGIC, d):
+        c = m.start()
+        if c + 0x708 > len(d): continue
+        nt = struct.unpack_from('<I', d, c + 0x20)[0]
+        nc = struct.unpack_from('<I', d, c + 0x704)[0]
+        a = c - nc
+        if not (0x760 <= nt <= 16 * 1024**2 and 0x50 <= nc <= 16 * 1024**2
+                and a >= 0 and c + nt <= len(d)): continue
+        code, ctl = d[a:c], d[c:c + nt]
+        if code[:4] == CS_MAGIC: st = 'cs'
+        elif code[:4] == GFX_MAGIC: st = sph_stage(code)
+        else: continue
+        if st not in STAGE_NAME or check(label, st, ctl, code): continue
+        out.append((f'{label}#NVN@{a:x}', st, ctl, code))
+    return out
+
 def bnsh_shaders(d, base, label):
     if d[base + 0x60:base + 0x64] != b'grsc': red(f'{label} BNSH @{base:#x} has no grsc block')
     nvar, pvar = struct.unpack_from('<IQ', d, base + 0x7c)
@@ -139,6 +163,43 @@ def mshd_shaders(d, label):
         c = d.find(CTL_MAGIC, g + ncode)
     if len(out) % 2: red(f'{label} MSHD: {len(out)} stages, not in pairs')
     return out
+
+def rfx_shaders(d, label):
+    """Remedy RFX 9: each NVN code area precedes its control section, surrounded by
+    effect metadata. Alan Wake Remastered 1.0.1 has 48,918 records in 75 files,
+    2,265 distinct shaders; every record's +0x704 length reaches its code header
+    exactly. Read those self-describing records without interpreting the effect's
+    permutations, and reject truncated or inconsistent sections before packing."""
+    if len(d) < 8 or d[:4] != b'RFX ' or struct.unpack_from('<I', d, 4)[0] != 9:
+        red(f'{label}: unsupported RFX header')
+    if len(d) < 12: red(f'{label}: truncated RFX dependencies')
+    dependencies = struct.unpack_from('<I', d, 8)[0]
+    start = 12
+    for _ in range(dependencies):
+        if start + 4 > len(d): red(f'{label}: truncated RFX dependency')
+        length = struct.unpack_from('<I', d, start)[0]
+        start += 4 + length + 4   # name and source hash
+        if start > len(d): red(f'{label}: RFX dependency outside the file')
+    if start + 4 > len(d): red(f'{label}: missing RFX technique count')
+    techniques = struct.unpack_from('<I', d, start)[0]
+    start += 4
+    data_start, out = start, []
+    while (c := d.find(CTL_MAGIC, start)) >= 0:
+        if c + 0x708 > len(d): red(f'{label} RFX @{c:#x}: truncated control section')
+        nctl = struct.unpack_from('<I', d, c + 0x20)[0]
+        ncode = struct.unpack_from('<I', d, c + 0x704)[0]
+        if nctl < 0x760 or c + nctl > len(d) or ncode < 0x50 or ncode > c - data_start:
+            red(f'{label} RFX @{c:#x}: section lengths outside the file')
+        ctl, code = d[c:c + nctl], d[c - ncode:c]
+        st = 'cs' if code[:4] == CS_MAGIC else sph_stage(code) if code[:4] == GFX_MAGIC else None
+        if not st: red(f'{label} RFX @{c:#x}: no matching code area header')
+        why = check(label, st, ctl, code)
+        if why: red(f'{label} RFX @{c:#x}: {why}')
+        out.append((f'{label}#RFX@{c:#x}', st, ctl, code))
+        start = c + nctl
+    if not out and techniques: red(f'{label}: RFX techniques have no NVN shader records')
+    return out
+
 
 def glslc_stage(ctl, code):
     """A GLSLC output's stage, from its code area's header (graphics: the SPH's stage bits), or compute when the code has no header and the control's thread group (+0x748) is filled"""
@@ -721,18 +782,18 @@ def trinity_shaders(path, rel, packs, out):
 
 UE_LEGACY = 'UE legacy pak'
 def ue_legacy_jobs(files, parts=64):
-    """Legacy Unreal paks (version 4, DRAGON QUEST XI S: pakchunk0-Switch.pak and pakchunk1-Switch.pak, 13.8 GB, and the update's *_0_P.pak): the engine mounts them all as one view, and a patch pak
+    """Unreal paks with inline shaders (UE4.18 and newer cookers without shader archives): the engine mounts them all as one view, and a patch pak
     (name ending in _P.pak) wins over the others for the same path. Only the newest copy of each path is scanned. → ([(pak path, rel, (UE_LEGACY, names)), …] in about equal raw sizes, the pak paths taken)"""
-    def legacy(p):
-        try:
-            with open(p, 'rb') as f: return uepak.pak_version(f) in uepak.LEGACY
-        except (OSError, ValueError, struct.error): return False
-    paks = [(p, r) for p, r in files if p.endswith('.pak') and legacy(p)]
+    inline = {p for folder in {os.path.dirname(p) for p, _ in files if p.endswith('.pak')}
+              for p in uepak.shader_paks(folder)[1]}
+    paks = [(p, r) for p, r in files if p in inline]
     if not paks: return [], set()
     view = {}
     for p, r in sorted(paks, key=lambda x: (x[1].endswith('_P.pak'), x[1])):   # patch paks last, so they replace; one view per pak folder (one per version given)
         pk = uepak.Pak(p)
-        for name, e in pk.files.items(): view[(os.path.dirname(p), os.path.normpath(pk.mount + name))] = (p, r, name, e['raw'])
+        try:
+            for name in pk.files: view[(os.path.dirname(p), os.path.normpath(pk.mount + name))] = (p, r, name, pk.entry(name)['raw'])
+        finally: pk.f.close()
     jobs, cur, size, step = [], collections.defaultdict(list), 0, sum(v[3] for v in view.values()) / parts
     for p, r, name, raw in sorted(view.values(), key=lambda x: (x[1], x[2])):
         cur[(p, r)].append(name); size += raw
@@ -742,13 +803,39 @@ def ue_legacy_jobs(files, parts=64):
 
 _PAKS = {}
 def ue_legacy_shaders(path, rel, names, out):
-    """Files of a legacy Unreal pak (ue_legacy_jobs), each decoded block by block with the game's own decoder (DRAGON QUEST XI S: LZ5) and scanned for the shader records the engine keeps inline"""
+    """Inline-shader pak files, decoded block by block: zlib locally, LZ5 through
+    the game's decoder. Scan the cooked payloads for plain, zlib or LZ4 shaders."""
     pk = _PAKS.get(path) or _PAKS.setdefault(path, uepak.Pak(path))
     for name in names:
         d = pk.read(name, decode=oodle)
         ue_inline_shaders(d, f'/{rel}#{re.sub(r"^(\.\./)+", "", os.path.normpath(pk.mount + name))}', out)
 
 ZLIB_HEAD = re.compile(b'\x78[\x01\x5e\x9c\xda]')
+def ue_lz4_record(d, i):
+    """An LSLG marker at the first literal of a length-prefixed LZ4 block.
+    UE 4.27's inline shaders (Hot Wheels 2) use this instead of zlib. Validate
+    the token, array bounds and decoded record; an incidental marker in assets
+    must not become a shader. LZ4 has no embedded raw length, so cap output at
+    16 MiB (the observed global shaders are under 64 KiB)."""
+    import lz4.block
+    starts = [i - 1] if i >= 5 and 4 <= d[i - 1] >> 4 < 15 else []
+    if i >= 6 and d[i - 1] != 255:
+        j = i - 2
+        while j >= 4 and i - j <= 0x10002:
+            if d[j] >> 4 == 15: starts.append(j)
+            if d[j] != 255: break
+            j -= 1
+    for start in starts:
+        n = int.from_bytes(d[start - 4:start], 'little')
+        if not i - start + 4 <= n <= min(len(d) - start, 16 * 1024**2): continue
+        block = d[start:start + n]
+        for capacity in (64 * 1024, 1024**2, 16 * 1024**2):
+            try: s = lz4.block.decompress(block, uncompressed_size=capacity)
+            except lz4.block.LZ4BlockError: continue
+            if uepak.lslg(s): return s, start, start + n
+            break
+    return None
+
 def ue_inline_shaders(d, label, out):
     """Shaders kept inline in cooked Unreal packages (UE 4.18, DRAGON QUEST XI S: each material's shader map in its .uexp, 38 to 87 shaders in the ones looked at, and the engine's global shaders in
     Engine/GlobalShaderCache-GLSL_SWITCH.bin, 945): each shader's code is a byte array (i32 length, then the bytes) holding one zlib stream, which inflates to an LSLG record as in the shader code
@@ -770,9 +857,14 @@ def ue_inline_shaders(d, label, out):
         try: s = z.decompress(d[i:i + n])
         except zlib.error: continue
         if z.eof and not z.unused_data and s[:4] == b'LSLG': take(s, i)
+    end = 0
     for m in re.finditer(b'LSLG', d):
+        if m.start() < end: continue
         i = m.start(); n = int.from_bytes(d[i - 4:i], 'little') if i >= 4 else 0
-        if 2 <= n <= len(d) - i and uepak.lslg(d[i:i + n]): take(d[i:i + n], i)
+        if 2 <= n <= len(d) - i and uepak.lslg(d[i:i + n]):
+            take(d[i:i + n], i); end = i + n
+        elif (record := ue_lz4_record(d, i)) is not None:
+            s, start, end = record; take(s, start)
 
 def yaz0(s):
     """Yaz0 decompression (Super Mario 3D World + Bowser's Fury: almost all of RomFS is .szs = SARC wrapped in Yaz0). Pure Python runs at about 20–45 MB/s per core, under a minute for the whole 4.7 GB RomFS in parallel, and needs no extra dependency.
@@ -906,13 +998,91 @@ def unity_shaders(d, label, out, trees):
                 out.extend((where, st, ctl, cd) for st, ctl, cd in unity_program(code, where, stages.get(k)))
         out.extend(unity_compute(x, f'{label}{":" + node if node else ""}', trees))
 
+def camelot_lz50(d, label):
+    """Type-0x50 LZ stream: BE output size, negated flag bytes, 12-bit distances.
+    Format reference: simontime/MarioTennisAces0x50Decompressor (decompress.c).
+    Decode with explicit input/output bounds, including overlapping backreferences.
+    """
+    if len(d) < 8 or d[:4] != b'\x50\0\0\0': red(f'{label}: invalid LZ50 header')
+    expected = int.from_bytes(d[4:8], 'big')
+    if not 0 < expected <= 256 * 1024 * 1024: red(f'{label}: invalid LZ50 expanded length')
+    out, pos = bytearray(), 8
+    def take(n):
+        nonlocal pos
+        if pos + n > len(d): red(f'{label}: truncated LZ50 stream')
+        b = d[pos:pos + n]; pos += n
+        return b
+    while len(out) < expected:
+        flags = (-take(1)[0]) & 255
+        for mask in (128, 64, 32, 16, 8, 4, 2, 1):
+            if len(out) == expected: break
+            if not flags & mask:
+                out.extend(take(1)); continue
+            a, b = take(2)
+            distance, length = (a >> 4) | (b << 4), a & 15
+            if length < 2:
+                length = take(1)[0] + (16 if length == 0 else 272)
+                if a & 15 == 1: length += take(1)[0] << 8
+            if not distance or distance > len(out) or len(out) + length > expected:
+                red(f'{label}: invalid LZ50 backreference')
+            # Repeat a bounded slice to handle distance < length without a byte loop.
+            pattern = out[-distance:]
+            out.extend((pattern * ((length + distance - 1) // distance))[:length])
+    return bytes(out)
+
+
+def narc_members(d, label):
+    """NARC allocation-table entries, including their 0x30 raw-DEFLATE wrapper.
+    Mario Tennis Aces keeps BNSH inside compressed FRES entries in these archives;
+    scanning the archive bytes directly sees only its uncompressed shaders.
+    The wrapper is 16 bytes with a big-endian uncompressed length at +1.
+    """
+    import zlib
+    if len(d) < 16 or d[:6] != b'NARC\xfe\xff': red(f'{label}: invalid NARC header')
+    size, header, count = struct.unpack_from('<IHH', d, 8)
+    if size != len(d) or header < 16 or header > size: red(f'{label}: invalid NARC size')
+    chunks, at = {}, header
+    for _ in range(count):
+        if at + 8 > size: red(f'{label}: truncated NARC chunk')
+        magic, n = struct.unpack_from('<4sI', d, at)
+        if n < 8 or at + n > size or magic in chunks: red(f'{label}: invalid NARC chunk')
+        chunks[magic] = d[at + 8:at + n]; at += n
+    if at != size or b'BTAF' not in chunks or b'GMIF' not in chunks: red(f'{label}: incomplete NARC')
+    fat, data = chunks[b'BTAF'], chunks[b'GMIF']
+    if len(fat) < 4: red(f'{label}: truncated NARC allocation table')
+    n = struct.unpack_from('<H', fat)[0]
+    if 4 + n * 8 > len(fat): red(f'{label}: truncated NARC allocation table')
+    previous = 0
+    for i in range(n):
+        start, end = struct.unpack_from('<II', fat, 4 + i * 8)
+        if start < previous or end < start or end > len(data): red(f'{label}: invalid NARC entry {i}')
+        previous = end
+        b = data[start:end]
+        if len(b) >= 16 and b[0] == 0x30 and b[5:16] == bytes(11):
+            expected = int.from_bytes(b[1:5], 'big')
+            if not 0 < expected <= 256 * 1024 * 1024: red(f'{label}: invalid NARC expanded length')
+            try:
+                inflater = zlib.decompressobj(-15)
+                raw = inflater.decompress(b[16:], expected + 1)
+            except zlib.error as exc: red(f'{label}: corrupt NARC DEFLATE entry {i}: {exc}')
+            if len(raw) != expected or not inflater.eof or inflater.unused_data:
+                red(f'{label}: NARC expanded length or stream mismatch in entry {i}')
+            b = raw
+        yield str(i), b
+
+
 def scan_blob(d, label, out):
     if d[:4] == b'Yaz0': d = yaz0(d)
+    if d[:4] == b'\x50\0\0\0': d = camelot_lz50(d, label)
+    if d[:4] == b'NARC':
+        for nm, m in narc_members(d, label): scan_blob(m, f'{label}/{nm}', out)
+        return
     if d[:4] == b'SARC':
         for nm, m in sarc_members(d): scan_blob(m, f'{label}/{nm}', out)
         return
     if d[:4] == b'BAHS': out.extend(bahs_shaders(d, label)); return
     if d[:4] == b'MSHD': out.extend(mshd_shaders(d, label)); return
+    if d[:4] == b'RFX ': out.extend(rfx_shaders(d, label)); return
     for m in re.finditer(b'BNSH\0\0\0\0', d):
         size = struct.unpack_from('<I', d, m.start() + 0x1c)[0]
         if m.start() + size <= len(d) and d[m.start() + 0x60:m.start() + 0x64] == b'grsc': out.extend(bnsh_shaders(d, m.start(), label))
@@ -929,7 +1099,7 @@ def ps_inputs(code):
     """Generic attributes a pixel shader reads: SPH words 6–13 are the input map, 8 bits for each of the 32 attributes (Ryujinx ShaderHeader.ImapTypes), non-zero = read; the translated MSL inputs are exactly user(locn<attribute>)"""
     return {i for i in range(32) if struct.unpack_from('<I', code, 0x30 + 4 * (6 + (i >> 2)))[0] >> ((i & 3) * 8) & 0xff}
 
-SINGLE_STAGE = ('#GLSLC@', '#UE', '#MTSPK@', '#MGFX@', '#NLG')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
+SINGLE_STAGE = ('#GLSLC@', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#RFX@', '#NVN@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
 # MonoGame's effects, whose passes may name no vertex shader and keep the one bound (Celeste: 10 of its 13 effects draw through SpriteBatch's vertex shader, which is in main); and Next Level Games'
 # archives (Luigi's Mansion 3 makes 5,317 programs of one stage each at boot)
 def separable_pairs(keys):
@@ -1023,7 +1193,7 @@ def scan_file(args):
         import unityfs
         try: unity_shaders(d, '/' + rel, found, trees if not TREES else dict(TREES))
         except unityfs.NoTree: return rel, {}, set(), 'defer'
-    elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] != b'MSHD' and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members
+    elif b'BNSH\0\0\0\0' not in d and b'BAHS' not in d and d[:4] not in (b'MSHD', b'RFX ', b'NARC', b'\x50\0\0\0') and not (d[:4] == b'SARC' and b'Yaz0' in d) and b'\x91\x68\x86\x19' not in d and MGFX not in d: return rel, {}, set(), {}   # a SARC may hold Yaz0 members
     else:
         scan_blob(d, '/' + rel, found)
         # whole GLSLC outputs in a file no other reader takes (FINAL FANTASY TACTICS - The Ivalice Chronicles: its engine's technique files, resources_nx/…/shader/*.tec, 261 outputs beside
@@ -1067,6 +1237,9 @@ def main():
             except ValueError: common = None   # not a Unity game
         found = []; scan_blob(img, 'main' + ('@' + tag if tag else ''), found)
         found += glslc_shaders(img, 'main' + ('@' + tag if tag else ''), need=False)
+        embedded = embedded_nvn_shaders(img, 'main' + ('@' + tag if tag else ''))
+        known = {skey(ctl, code) for _, _, ctl, code in found}
+        found += [row for row in embedded if skey(row[2], row[3]) not in known]
         # GLSLC outputs the game compiles at run time, captured on the Mac (hle_glslc.c): <version dir>/glslc_capture, or DM_GLSLC_CAPTURE. A game needs them when main holds GLSL sources and
         # calls glslcCompile in a module it loads (Fire Emblem: Three Houses; profile_guess.py shader_sources). Captain Toad: Treasure Tracker imports it with agl's GLSL sources, but no module defines it
         cap = os.environ.get('DM_GLSLC_CAPTURE') or os.path.join(os.path.dirname(os.path.abspath(romfs)), 'glslc_capture')
@@ -1077,7 +1250,7 @@ def main():
         # Unreal Engine shader code archives decoded on the Mac (uepak.py): <version dir>/ue_shaders, or DM_UE_SHADERS; needed when the RomFS has Unreal paks
         ued = os.environ.get('DM_UE_SHADERS') or os.path.join(os.path.dirname(os.path.abspath(romfs)), 'ue_shaders')
         names = sorted(f for f in os.listdir(ued) if f.endswith('.ushaderbytecode')) if os.path.isdir(ued) else []
-        if not names and uepak.unreal_paks(romfs, legacy=False): red(f'the RomFS has Unreal paks, but there are no decoded shader code archives in {ued} (the NSP script writes them)')
+        if not names and uepak.shader_paks(romfs)[0]: red(f'the RomFS has Unreal paks, but there are no decoded shader code archives in {ued} (the NSP script writes them)')
         for nm in names: found += ue_shaders(open(os.path.join(ued, nm), 'rb').read(), f'/ue_shaders/{nm}')
         results.append(('main', {skey(c, k): (w, s, c, k) for w, s, c, k in found}, var_pairs(found), {}))
     zdicts = {k: v for r in romfs_v for k, v in zs_dicts(r).items()}   # Tears of the Kingdom's zstd dictionaries (zs_dicts)

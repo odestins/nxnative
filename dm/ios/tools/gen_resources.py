@@ -33,6 +33,7 @@ def main():
         'DM_RESOURCE_SHADERS': str(Path(shaders).resolve()),
         'DM_RESOURCE_MSLDIR': msldir,
         'DM_RESOURCE_AOC': str(Path(aoc).resolve()) if aoc and Path(aoc).is_dir() else '',
+        'DM_RESOURCE_SYSTEM_DATA': str(Path(os.environ['DM_SYSTEM_DATA']).resolve()) if os.environ.get('DM_SYSTEM_DATA') else '',
         'DM_RESOURCE_CHAIN_H': str(Path(chain_h).resolve()),   # dm/gfx/nvn/dmsh_chain.h, which the host is compiled with (one chain version for every game)
     }
     (ios / 'Gen/resources.env').write_text(

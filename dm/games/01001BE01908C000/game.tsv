@@ -1,0 +1,42 @@
+# Local native port profile. Validation and limitations: docs/native-game-ports.md.
+
+# ---- Identity ----
+title_id	01001BE01908C000
+program_id	01001BE01908C000
+
+# ---- App ----
+name	HOT WHEELS UNLEASHED™ 2 - Turbocharged
+ipa	HotWheelsUnleashed2Turbocharged.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v65536	1.0.1	main=012294c1e2d28a79966d188723ca0aaa	subsdk0=34577ede441d6dddaa1af845b7869356	sdk=d5a1029a57d8cd4fdf4eacad87b0cfd0
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# every module main imports from
+modules	main subsdk0 sdk
+romfs_marker	hotwheels2/Content/Paks/pakchunk0-Switch.pak
+zip_store	.mp4:.nro:.pak:.ttf:.metallib
+
+# ---- Memory ----
+# 5 GiB reservation, 4.25 GiB alias and 256 MiB stack; 256 MiB remains for the requested 202 MiB heap.
+game_args	-SwitchVirtualAddressSpaceSize=4064
+mem_reserve	0x140000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 32 MB of system resource
+sys_resource	0x2000000
+
+# ---- Shader split ----
+# the decoded shader code archives: the engine's global shaders and the game's material shaders
+shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
+shader_note	HOT WHEELS UNLEASHED™ 2 - Turbocharged shaders (provisional profile)
+
+# ---- Heap check on the Mac ----
+mem_alias	0x110000000
+
+
+# Full controls: both sticks, D-pad, triggers and stick clicks.
+pad_layout	full

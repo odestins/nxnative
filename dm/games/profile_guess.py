@@ -158,9 +158,13 @@ def guess(F, hooks=None):
 
     if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} and R['exts'].get('.pak') and 'nvnBootstrapLoader' in imp:
         G['shader_groups'] = ('ShaderArchive-Global-=global ShaderArchive-=game', 'the decoded shader code archives: the engine\'s global shaders and the game\'s material shaders')
-        G['mem_reserve'] = ('0x1028000000', 'Unreal: nninitStartup reserves a 62 GB address region and its FMallocBinned3 takes 37 GB of it, so a 64 GB alias region for the bring-up on the Mac. '
-                            'An iPhone needs the allocator cut for the build and a capped region (game_args), as Octopath Traveler 0\'s profile (docs/agents/03)')
-        G['mem_alias'] = ('0x1008000000', '')
+        # Older Unreal builds without NPDM system resource use the regular heap.
+        # Little Nightmares (SDK 3.5.1) asks for 0xc5600000 bytes at startup;
+        # replacing its heap layout with this all-alias layout leaves zero room.
+        if F['sysres']:
+            G['mem_reserve'] = ('0x1028000000', 'Unreal: nninitStartup reserves a 62 GB address region and its FMallocBinned3 takes 37 GB of it, so a 64 GB alias region for the bring-up on the Mac. '
+                                'An iPhone needs the allocator cut for the build and a capped region (game_args), as Octopath Traveler 0\'s profile (docs/agents/03)')
+            G['mem_alias'] = ('0x1008000000', '')
     G.update(preset)
     return G
 
@@ -210,7 +214,8 @@ def build_sources(exefs, romfs, modules):
             if n.endswith('.trpfs'):
                 with open(os.path.join(d, n), 'rb') as f: trinity += f.read(8) == b'ONEPACK\0'
     gl_files = sum(1 for _, _, names in os.walk(romfs) for n in names if n.lower().endswith(GL_FILES)) if 'eglCreateWindowSurface' in imports else 0
-    return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), legacy=False)), trinity, len(uepak.unreal_paks(str(romfs), legacy=True)), gl_names, gl_src, gl_files)
+    archive_paks, inline_paks = uepak.shader_paks(str(romfs))
+    return shader_sources(imports, glsl_src, glslc_mods, spirv, len(archive_paks), trinity, len(inline_paks), gl_names, gl_src, gl_files)
 
 
 def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)

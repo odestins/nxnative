@@ -20,7 +20,7 @@ private let defaults = UserDefaults.standard
 
 private final class LauncherModel: ObservableObject {
     let settings: [Setting]
-    let fromFile: Set<String>   // set by an env file: shown, not changed
+    @Published var fromFile: Set<String>   // set by an env file: shown, not changed
     @Published var values: [String: String] = [:]
 
     init(_ settings: [Setting]) {
@@ -35,6 +35,13 @@ private final class LauncherModel: ObservableObject {
 
     func binding(_ s: Setting) -> Binding<String> { Binding(get: { self.values[s.env] ?? s.def }, set: { self.values[s.env] = $0 }) }
 
+    func setPerformanceHUD(_ enabled: Bool) {
+        for key in ["DM_METAL_HUD", "DM_SHOW_FPS"] {
+            fromFile.remove(key)
+            values[key] = enabled ? "1" : "0"
+        }
+    }
+
     // Before the game starts: every setting not set by an env file goes into the environment (DM_LANG replaces the packed language main.m set as a default)
     func apply() {
         for s in settings {
@@ -44,6 +51,13 @@ private final class LauncherModel: ObservableObject {
             setenv(s.env, v, 1); fputs("launcher: \(s.env)=\(v)\n", stderr)
         }
     }
+}
+
+private weak var activeLauncherModel: LauncherModel?
+
+@_cdecl("dm_launcher_set_performance_hud")
+public func dmLauncherSetPerformanceHUD(_ enabled: Bool) {
+    activeLauncherModel?.setPerformanceHUD(enabled)
 }
 
 private struct SettingRow: View {
@@ -133,6 +147,7 @@ public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @c
     guard let file = try? JSONDecoder().decode(SettingsFile.self, from: data), !file.settings.isEmpty else { fputs("[RED] launcher: dm/launcher.json cannot be read; starting the game\n", stderr); return false }
     let parent = Unmanaged<UIViewController>.fromOpaque(viewController).takeUnretainedValue()
     let model = LauncherModel(file.settings)
+    activeLauncherModel = model
     var host: UIViewController?
     let view = LauncherView(m: model) {
         guard let h = host else { return }

@@ -1,6 +1,30 @@
 # The rewriter's patches of Nintendo SDK module builds (sdk), which several games can ship: dm/tools/patch_nso.py applies those of a module's NSO build ID, whatever the game.
 # A patch of a game's own module (main) goes in its profile's patches.py (dm/games/<id>/patches.py). CUTS as described in patch_nso.py ("Registered patches")
 CUTS = {
+  # GYLT 1.2, SDK 16.2.6: the constructor and large-region allocator have the
+  # same instruction sequence as the other SDK 16 cuts, verified on this build.
+  'a5cb2175cad2ca2afdd4c13577dbd079': [
+    (0x134778, '08fca752', '087ca052', 'AddressRegionManager node area limit: 1 GB -> 62 MB'),
+    (0x13480c, '09fca752', '097ca052', 'AddressRegionManager occupied node area: 1 GB -> 62 MB'),
+    (0x13496c, '0a00a852', '0a40a052', 'AllocateAddressRegion large-region alignment: 1 GB -> 32 MB'),
+  ],
+  # Hot Wheels Unleashed 2 1.0.1, SDK 15.3: same measured allocator locations
+  # and original instructions as SDK 15.3.2's existing cut below.
+  'd5a1029a57d8cd4fdf4eacad87b0cfd0': [
+    (0x12e0f0, '08fca752', '087ca052', 'AddressRegionManager node area limit: 1 GB -> 62 MB'),
+    (0x12e184, '09fca752', '097ca052', 'AddressRegionManager occupied node area: 1 GB -> 62 MB'),
+    (0x12e2e0, '0a00a852', '0a40a052', 'AllocateAddressRegion large-region alignment: 1 GB -> 32 MB'),
+  ],
+  # Hellblade 1.1.0, SDK 7.3.0: AddressRegionManager at sdk+0x32c450 reserves
+  # a 1 GB node area before Unreal's region. Its two size constants and the
+  # large-region alignment in AllocateAddressRegion were checked by disassembly.
+  # As SDK 7.3.2's DQ XI S cut, 62 MB of nodes and 32 MB alignment let the
+  # engine's own -SwitchVirtualAddressSpaceSize=4064 fit a 5 GB reservation.
+  '6bfe1085ed54bdf0dcc5d0ea0262b7c3': [
+    (0x32c460, 'e9230b32', '097ca052', 'AddressRegionManager node area limit: 1 GB -> 62 MB'),
+    (0x32c500, 'e9230b32', '097ca052', 'AddressRegionManager occupied node area: 1 GB -> 62 MB'),
+    (0x32c66c, 'ea030232', '0a40a052', 'AllocateAddressRegion large-region alignment: 1 GB -> 32 MB'),
+  ],
   # Fire Emblem Engage 2.0.0 (v327680) sdk: AddressRegionManager node area 0x3fe00000 (about 1 GB) → 0x3e00000 (62 MB).
   # The constructor (sdk+0x346420) carves the node area out of the start of the alias region (a unit heap of 0x30-byte nodes, mapped only as used) before AllocateAddressRegion hands out regions.
   # The hardware alias region is 64 GB, so the 1 GB does not matter there; the host's alias region is only 5.375 GB (iOS caps a single reservation at 6 GB), and after StandardAllocator's 3.14 GB block (1 GB aligned)

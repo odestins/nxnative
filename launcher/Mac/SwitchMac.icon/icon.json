@@ -1,0 +1,11 @@
+{
+  "fill": { "automatic-gradient": "extended-srgb:0.90196,0.00000,0.07059,1.00000" },
+  "groups": [
+    {
+      "layers": [{ "image-name": "SwitchFace.png", "name": "Original Switch mark and red face" }],
+      "shadow": { "kind": "neutral", "opacity": 0.0 },
+      "translucency": { "enabled": false, "value": 0.0 }
+    }
+  ],
+  "supported-platforms": { "squares": ["macOS"] }
+}

@@ -1,0 +1,38 @@
+# Local native port profile. Validation and limitations: docs/native-game-ports.md.
+
+# ---- Identity ----
+title_id	0100623017A58000
+program_id	0100623017A58000
+
+# ---- App ----
+name	Alan Wake Remastered
+ipa	AlanWakeRemastered.ipa
+app_category	public.app-category.games
+
+# ---- Versions ----
+build	v65536	1.0.1	main=6520258d00aea915839f16acdcf00682	sdk=2bf3519216f5b9d3e8ce26863c2e98b6
+package	v65536
+shader_versions	v65536
+
+# ---- Files ----
+# every module main imports from
+modules	main sdk
+romfs_marker	data/ep999-000.rmdp
+zip_store	.bik:.rmdp:.shaderbin:.metallib
+
+# ---- Memory ----
+# 4 GiB reservation, 256 MiB alias and stack regions; tested opening gameplay on iPhone 17 Pro.
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
+sys_resource	0x0
+
+# ---- Shader split ----
+shader_groups	/data/=data /shaders/=shaders
+shader_note	Alan Wake Remastered shaders (provisional profile)
+
+# Full controls: both sticks, D-pad, triggers and stick clicks.
+pad_layout	full

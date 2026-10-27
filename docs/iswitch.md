@@ -2,8 +2,9 @@
 
 Build 19 adds controller navigation, bounded image/export work, import recovery,
 and Chat/save reliability improvements. It is signed with Apple Development for
-the owner's registered iPhone and iPad, with verified iCloud entitlements. It has
-not replaced the installed apps. See the [26 October review](review-2026-10-26.md) for
+the owner's registered iPhone and iPad, with verified iCloud entitlements. Build 19
+is installed on both devices; launch and data-preservation checks passed.
+See the [26 October review](review-2026-10-26.md) for
 changes, validation, package paths, and remaining device checks.
 
 The app and Xcode project are named **reSwitch**, with the user's supplied red-and-white icon. Existing bundle identifiers, Keychain services, file formats, and storage paths are retained so updates preserve libraries, saves and sign-in. To rebuild the icon from its retained source, run `swift launcher/Tools/GenerateIcon.swift launcher/Tools/IconSource.png launcher/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
@@ -24,7 +25,7 @@ Separate iPhone and iPad portrait/landscape layout checks passed; the phone chec
 also rejects covers wider than half the screen or a navbar far above the footer.
 Build 18 was signed and installed on the iPhone on 26 October 2026, and its launch
 check passed. All 11 library/artwork/profile/import files and existing preference
-values match the retained build 17 delivery backup. The iPad remains on build 17;
+values match the retained build 17 delivery backup. At that delivery, the iPad remained on build 17;
 its unchanged tablet geometry passed the separate simulator check. The signed IPA
 is `launcher/build/reSwitch-1.0.0-build18-signed.ipa`.
 
@@ -194,4 +195,4 @@ Core tests cover card validation, launch URL restrictions, atomic updates, corru
 
 ## Preservation
 
-The original upstream history was forked to `https://github.com/odestins/nxnative`. A full-history Git bundle is kept locally under `.git/preservation/nxnative-upstream.bundle`. Launcher changes are local on `codex/iswitch-launcher` until explicitly committed/pushed. No games, firmware, keys, IPAs, or extracted user assets belong in the source repository or its Git history.
+The original upstream history was forked to `https://github.com/odestins/nxnative`. A full-history Git bundle is kept locally under `.git/preservation/nxnative-upstream.bundle`. The reSwitch source is committed and pushed on `codex/iswitch-launcher`. No games, firmware, keys, IPAs, or extracted user assets belong in the source repository or its Git history.

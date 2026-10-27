@@ -3,12 +3,14 @@
 Version 1.2.1 build 6 improves background library work, recovery, controller and
 keyboard navigation, compact-window layout, Chat, and installer rollback. This
 release is Developer ID signed with hardened runtime and a secure timestamp;
-it has not been notarized or replaced `/Applications/reSwitch.app`.
+it is installed at `/Applications/reSwitch.app` and has not been notarized.
+HOME, Settings, and the existing guest Chat connection passed delivery checks;
+the library, profile, and existing preferences were preserved.
 See the [26 October review](review-2026-10-26.md) for validation and delivery details.
 
 ## reSwitch update — 26 October 2026
 
-Mac 1.2.0 build 5 is installed at `/Applications/reSwitch.app`. App names, menus,
+Earlier on 26 October, Mac 1.2.0 build 5 was installed at `/Applications/reSwitch.app`. App names, menus,
 window titles, current documentation and generated Xcode projects use reSwitch.
 Bundle IDs, Keychain services, game descriptors, and storage paths remain stable.
 The old owned Switch.app and generated Xcode projects were moved into the cache's

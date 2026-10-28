@@ -4,7 +4,7 @@
 
 This nxnative fork adds reSwitch, a native Mac, iPhone and iPad launcher with a Nintendo Switch 2-style HOME menu, manual game cards, and direct iPhone imports for NSP/XCI files, prod.keys, and firmware ZIPs. See [reSwitch setup and limitations](docs/iswitch.md) and the [SwiftUI app](launcher/). New raw games still require nxnative's Mac preparation before they can run; file import alone does not install a playable game.
 
-reSwitch also includes Discord-based [Chat](docs/gamechat-implementation.md) and private [iCloud save backups](docs/cloud-saves.md) for its updated native game apps. See the [delivery checks](docs/validation-2026-10-23.md) for installed versions and validation limits.
+reSwitch also includes Discord-based [Chat](docs/gamechat-implementation.md) and private [iCloud save backups](docs/cloud-saves.md) for its updated native game apps. See the [latest review and delivery checks](docs/upstream-2026-10-28.md) for installed versions and validation limits.
 
 The [multiplayer roadmap](docs/roadmap.md) tracks local co-op, remote play through Chat, and synchronized multiplayer with each phone running its own game.
 

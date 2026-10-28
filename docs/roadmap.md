@@ -12,7 +12,7 @@ Three planned capabilities will let friends play together through reSwitch. The 
 
 ## 1 Local co-op on one iPhone
 
-The iOS runtime now reuses the Mac front end's controller-slot logic, assigning physical controllers to separate players for games that support multiple controllers. Single-player games retain their existing controller fallback. Disconnects and backgrounding release held inputs and pending button edges. This is implemented in source; it has not yet passed a two-controller Wonder session on a physical iPhone or iPad, and existing installed game apps need rebuilding before they receive it.
+The iOS runtime now reuses the Mac front end's controller-slot logic, assigning physical controllers to separate players for games that support multiple controllers. Single-player games retain their existing controller fallback. Disconnects and backgrounding release held inputs and pending button edges. The owner's [28 October native game updates](upstream-2026-10-28.md#native-game-updates) include this routing; older game apps need rebuilding to receive it. It has not yet passed a two-controller Wonder session on a physical iPhone or iPad.
 
 Remaining work:
 

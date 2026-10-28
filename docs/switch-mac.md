@@ -1,12 +1,14 @@
 # reSwitch for Mac
 
-Version 1.2.1 build 6 improves background library work, recovery, controller and
-keyboard navigation, compact-window layout, Chat, and installer rollback. This
-release is Developer ID signed with hardened runtime and a secure timestamp;
+Version 1.2.2 build 7 accompanies the 28 October native-runtime reliability update.
+It retains the platform-specific desktop layout, keyboard/controller navigation
+and Chat. This build is Developer ID signed with hardened runtime and a secure timestamp;
 it is installed at `/Applications/reSwitch.app` and has not been notarized.
 HOME, Settings, and the existing guest Chat connection passed delivery checks;
 the library, profile, and existing preferences were preserved.
-See the [26 October review](review-2026-10-26.md) for validation and delivery details.
+See the [28 October review and delivery](upstream-2026-10-28.md) for validation and
+local package details. The earlier library, navigation and installer improvements
+are recorded in the [26 October review](review-2026-10-26.md).
 
 ## reSwitch update — 26 October 2026
 

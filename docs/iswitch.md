@@ -1,11 +1,14 @@
 # reSwitch launcher
 
-Build 19 adds controller navigation, bounded image/export work, import recovery,
-and Chat/save reliability improvements. It is signed with Apple Development for
-the owner's registered iPhone and iPad, with verified iCloud entitlements. Build 19
-is installed on both devices; launch and data-preservation checks passed.
-See the [26 October review](review-2026-10-26.md) for
-changes, validation, package paths, and remaining device checks.
+Build 20 protects valid library backups from a corrupted primary, bounds saved
+metadata to the read limit, and stops superseded iCloud metadata scans. It is
+signed with Apple Development for the owner's registered iPhone and iPad, with
+verified iCloud entitlements. Build 20 is installed on both devices; launch and
+data-preservation checks passed. See the [28 October review and delivery](upstream-2026-10-28.md)
+for changes, validation, local package paths and remaining gameplay checks.
+
+Build 19 added controller navigation, bounded image/export work, import recovery
+and Chat/save reliability improvements, recorded in the [26 October review](review-2026-10-26.md).
 
 The app and Xcode project are named **reSwitch**, with the user's supplied red-and-white icon. Existing bundle identifiers, Keychain services, file formats, and storage paths are retained so updates preserve libraries, saves and sign-in. To rebuild the icon from its retained source, run `swift launcher/Tools/GenerateIcon.swift launcher/Tools/IconSource.png launcher/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
 

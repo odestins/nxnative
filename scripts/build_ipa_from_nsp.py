@@ -23,9 +23,9 @@
 #   this build's shaders, where git ignores them, and a reused step makes them again when they do not name its libraries' stamp (chain_tables).
 # The shader translator is the in-repo dm/gfx/tools/dmsh_xlate_bin (the build whose fingerprints match dmsh_chain.lock; a rebuilt dll has different fingerprints and dmsh_build refuses it; its launcher is universal, so an Intel Mac runs it too). The Metal compiler and spirv-cross may be other than the lock's: the iOS shaders
 #   are built through dm/gfx/tools/own_compilers.py, which says so in one line and leaves the lock and the chain version as they are.
-# The Python running this file needs lz4, capstone and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd, spirv-cross. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
+# The Python running this file needs lz4, capstone and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd, spirv-cross, glslang. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
 # The console shows one line per stage ([k/n] stage, with a bar, done/total, percent, elapsed time and ETA where the work can be counted); the tools' own output goes only to logs/ (PROGRESS / --progress). --progress json writes newline-delimited JSON events to stdout.
-import ast, collections, ctypes, getpass, hashlib, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types, zlib
+import ast, collections, ctypes, errno, getpass, hashlib, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types, zlib
 from pathlib import Path
 
 # ---- Settings ----
@@ -343,9 +343,15 @@ def build_id(nso):
         f.seek(0x40); return f.read(16).hex()
 
 
+def _gone(func, path, exc):
+    # On exFAT/FAT, deleting a file can also remove its AppleDouble partner.
+    # Only an already-removed entry is harmless; permissions/I/O failures remain errors.
+    if not (isinstance(exc, OSError) and exc.errno == errno.ENOENT): raise exc
+
+
 def rmtree(p):
-    if p.is_symlink() or p.is_file(): p.unlink()
-    elif p.exists(): shutil.rmtree(p)
+    if p.is_symlink() or p.is_file(): p.unlink(missing_ok=True)
+    elif p.exists(): shutil.rmtree(p, onexc=_gone)
 
 
 def build_nx_extract(repo, work, logs, env):
@@ -368,14 +374,51 @@ def free_gb(p):
     return shutil.disk_usage(p).free / 2**30
 
 
+def configure_dotnet(env):
+    """Find .NET 10 for standalone apphosts, including Homebrew's bin wrapper."""
+    if env.get('DOTNET_ROOT'): return
+    dotnet = shutil.which('dotnet', path=env['PATH'])
+    if not dotnet: return
+    try:
+        out = subprocess.run([dotnet, '--list-runtimes'], env=env, capture_output=True, text=True, check=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError): return
+    for line in out.splitlines():
+        m = re.fullmatch(r'Microsoft\.NETCore\.App\s+10\.\S+\s+\[(.+)/shared/Microsoft\.NETCore\.App\]', line.strip())
+        if m:
+            # Some extraction steps inherit the process environment; shader
+            # subprocesses receive env explicitly. Caller overrides stay intact.
+            env['DOTNET_ROOT'] = os.environ['DOTNET_ROOT'] = m[1]
+            return
+
+
 # ---- NSP identification ----
 def pfs0_names(path):   # NSP = PFS0: list the file names inside
     with open(path, 'rb') as f:
         h = f.read(16)
         if h[:4] != b'PFS0': return []
+        if len(h) != 16: raise BuildError('truncated PFS0 header')
         n, st = struct.unpack_from('<II', h, 4)
+        directory_size = 16 + n * 0x18 + st
+        file_size = os.fstat(f.fileno()).st_size
+        # NSPs contain a small directory of NCAs/tickets. Validate untrusted
+        # counts before allocating or reading an attacker-sized directory.
+        if n > 65536 or directory_size > 16 * 1024 * 1024: raise BuildError('PFS0 directory exceeds the 16 MiB / 65536-entry limit')
+        if directory_size > file_size: raise BuildError('truncated PFS0 directory')
         ent, strs = f.read(n * 0x18), f.read(st)
-    return [strs[o:strs.index(b'\0', o)].decode(errors='replace') for o in (struct.unpack_from('<I', ent, i * 0x18 + 0x10)[0] for i in range(n))]
+    if len(ent) != n * 0x18 or len(strs) != st: raise BuildError('PFS0 directory changed while reading')
+    names = []
+    for i in range(n):
+        offset, size, name_offset = struct.unpack_from('<QQI', ent, i * 0x18)
+        if offset + size > file_size - directory_size: raise BuildError('PFS0 entry extends beyond the package')
+        end = strs.find(b'\0', name_offset, min(st, name_offset + 1024))
+        if name_offset >= st or end <= name_offset: raise BuildError('invalid PFS0 entry name')
+        names.append(strs[name_offset:end].decode(errors='replace'))
+    return names
+
+
+def is_package(path):   # nx_extract accepts PFS0, or an XCI card header at 0x100
+    with open(path, 'rb') as f: h = f.read(0x104)
+    return h[:4] == b'PFS0' or h[0x100:] == b'HEAD'
 
 
 def title_of(path):   # the ticket name (the first 16 digits of the rights ID = title ID), else [title ID] in the file name
@@ -393,10 +436,17 @@ def version_of(path):
 def scan_nsps(nsp_dir):
     """Group by game: {application title ID: {'base': path, 'updates': [(version, path)], 'dlc': [(title ID, version, path)]}}"""
     fams, unknown = {}, []
-    for p in sorted([*nsp_dir.glob('*.nsp'), *nsp_dir.glob('*.xci')]):   # a base game may be a cartridge dump (.xci: Monster Hunter Rise); nx_extract reads its secure partition
+    for p in sorted(p for p in nsp_dir.iterdir() if p.suffix.lower() in ('.nsp', '.xci')):   # a base game may be a cartridge dump; nx_extract reads its secure partition
+        if p.name.startswith('._'): continue   # extended attributes on exFAT/FAT are not another game package
+        if not p.is_file():
+            say(f'skipping a non-file package entry: {p.name}'); continue
         if p.stat().st_size == 0:   # an empty file left by an incomplete download (the Zelda BotW folder holds a 0-byte DLC NSP next to the complete (1).nsp)
             say(f'skipping an empty file: {p.name}'); continue
-        tid = title_of(p)
+        if not is_package(p):
+            say(f'skipping {p.name}: neither an NSP (PFS0) nor an XCI (HEAD at 0x100)'); continue
+        try: tid = title_of(p)
+        except BuildError as e:
+            say(f'skipping {p.name}: {e}'); continue
         if tid is None: unknown.append(p); continue
         low = tid & 0xFFF   # base …000, update …800, DLC = base + 0x1000 + index
         app = tid if low == 0 else tid & ~0xFFF if low == 0x800 else (tid & ~0xFFF) - 0x1000
@@ -470,6 +520,11 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
     PROG.stage('survey: code modules', step='reading')
     xlog = (logs / 'extract.log').read_text(errors='replace')
     dv = re.search(r'display version (\S+)', xlog)
+    try: native = pg.aarch64(ex / 'ExeFS/main.npdm')
+    except ValueError as e: raise BuildError(str(e)) from e
+    if not native:
+        raise BuildError(f'{nacp.name(ex / "control.nacp") or "?"} ({app:016X}) is a 32-bit ARM program: '
+                         'Apple silicon cannot run its 32-bit ARM code; this project requires AArch64 game code')
     F = pg.facts_of(ex / 'ExeFS', ex / 'romfs_manifest.tsv'); mods, rom = F['mods'], F['romfs']   # dm/games/profile_guess.py: what the code modules and the RomFS show
     R = [f'# Survey: {nacp.name(ex / "control.nacp") or "?"} ({app:016X})', '', f'- display version: {dv.group(1) if dv else "?"}', f'- base: `{fam["base"].name}` ({fam["base"].stat().st_size / 2**30:.2f} GB)']
     R += [f'- update: `{p.name}` (v{v}, {p.stat().st_size / 2**30:.2f} GB){" (used for this survey)" if p == upd else ""}' for v, p in ups]
@@ -700,13 +755,38 @@ def profile_files(g):   # every file of the game profile (game.tsv and its table
 def check_prereqs(env, xlate, mac=False):   # mac: a Mac-only build (PLATFORM 'mac'), which needs no xcodegen and compiles shaders only for macOS
     missing = [m for m in ('lz4.block', 'capstone', 'fontTools') if not _importable(m)] + ([] if _importable('compression.zstd') or _importable('backports.zstd') else ['backports.zstd'])   # zstd: built in from Python 3.14
     if missing: raise BuildError(f'the current Python ({sys.executable}) is missing modules: {", ".join(missing)} (pip install lz4 capstone fonttools backports.zstd; backports.zstd only before Python 3.14)')
-    tools = {'xcodebuild': 'Xcode', 'xcodegen': 'brew install xcodegen', 'dotnet': '.NET SDK 10', 'zstd': 'brew install zstd', 'spirv-cross': 'brew install spirv-cross', 'make': 'Xcode'}
+    tools = {'xcodebuild': 'Xcode', 'xcodegen': 'brew install xcodegen', 'dotnet': '.NET SDK 10', 'zstd': 'brew install zstd', 'spirv-cross': 'brew install spirv-cross', 'make': 'Xcode', 'glslangValidator': 'brew install glslang'}
     if mac: del tools['xcodegen']
     gone = [f'{t} ({how})' for t, how in tools.items() if not shutil.which(t, path=env['PATH'])]
     if gone: raise BuildError('tools not found: ' + ', '.join(gone))
+    if not mac: check_ios_sdk(env)
     mtl = subprocess.run(['xcrun', '-sdk', 'macosx' if mac else 'iphoneos', 'metal', '--version'], capture_output=True, text=True, env=env)   # Xcode 26 and later install the Metal toolchain separately
     if mtl.returncode: raise BuildError(f'the Metal compiler does not run ({(mtl.stderr.strip().splitlines() or ["no output"])[-1]}): install it with xcodebuild -downloadComponent MetalToolchain')
     if not xlate.exists(): raise BuildError(f'the shader translator is missing from the repository: {xlate}')
+    check_translator(xlate, env)
+
+
+def check_ios_sdk(env):
+    if subprocess.run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-version'], capture_output=True, text=True, env=env).returncode == 0: return
+    dev = subprocess.run(['xcode-select', '-p'], capture_output=True, text=True, env=env).stdout.strip()
+    if 'CommandLineTools' in dev: raise BuildError(f'the selected developer folder is the Command Line Tools ({dev}), which have no iOS SDK: select Xcode with sudo xcode-select -s /Applications/Xcode.app')
+    raise BuildError('the iOS SDK is not installed: install the iOS platform in Xcode Settings > Components, or with xcodebuild -downloadPlatform iOS')
+
+
+def check_translator(xlate, env):
+    """Check the translator's actual .NET runtime before extraction or shader capture."""
+    try: r = subprocess.run([str(xlate), '--source-sha'], capture_output=True, text=True, env=env, timeout=60, errors='replace')
+    except (OSError, subprocess.SubprocessError) as e: raise BuildError(f'the shader translator does not start ({e}): {xlate}') from e
+    if r.returncode == 0 and r.stdout.strip(): return
+    why = (r.stderr.strip().splitlines() or r.stdout.strip().splitlines() or [f'exit code {r.returncode}'])[0]
+    raise BuildError(f'the shader translator does not run ({why}): it needs the .NET 10 runtime for this Mac\'s architecture (brew install --cask dotnet-sdk); unset DOTNET_ROOT if it names another one')
+
+
+def check_native_python():
+    # A universal tool launched by an Intel Python also runs as Intel, potentially
+    # selecting a missing .NET runtime even though the arm64 runtime is installed.
+    if sys.platform != 'darwin' or subprocess.run(['sysctl', '-n', 'sysctl.proc_translated'], capture_output=True, text=True).stdout.strip() != '1': return
+    raise BuildError(f'this Python ({sys.executable}) is an Intel one running under Rosetta: run the script with an arm64 Python, such as Homebrew Python in /opt/homebrew')
 
 
 def _importable(m):
@@ -773,9 +853,11 @@ def build_mismatch(d, name, g):   # the modules of an extraction whose build ID 
 
 def patch_files(repo, exe_dir, mods):
     """The patch files that name one of the modules' builds (dm/tools/sdk_patches.py, dm/games/*/patches.py): patch_nso.py loads them all but applies only those of a module's
-    build ID, so another game's patches do not change this game's rewrite"""
+    build ID, so another game's patches do not change this game's rewrite. The shared SDK rules always count, including rules that do not spell out the current build ID."""
     ids = {build_id(exe_dir / m) for m in mods}
-    return [p for p in [repo / 'dm/tools/sdk_patches.py'] + sorted((repo / 'dm/games').glob('*/patches.py')) if any(i in p.read_text(errors='replace') for i in ids)]
+    sdk = repo / 'dm/tools/sdk_patches.py'
+    # SDK-wide rules can change without naming this exact build ID.
+    return [sdk] + [p for p in sorted((repo / 'dm/games').glob('*/patches.py')) if any(i in p.read_text(errors='replace') for i in ids)]
 
 
 def rewrite(py, repo, exe_dir, out, env, logs, g):
@@ -1484,6 +1566,7 @@ def main(args=None):
     mac = platform == 'mac'   # a Mac-only build for development: no iOS shaders, Xcode project or IPA (mac_run)
     if mac and prepare_xcode: raise BuildError('--prepare-xcode makes an iPhone project: it cannot be combined with --platform mac')
     if mac and not apple_silicon(): raise BuildError('--platform mac runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
+    check_native_python()
     keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
     if mac and not keep: say('keeping the extracted game files all the same: the game runs from them on the Mac'); keep = True
     if prepare_xcode and not keep: raise BuildError('--prepare-xcode requires --keep-extracted: Xcode builds from the extracted files')
@@ -1500,11 +1583,14 @@ def main(args=None):
     if not want_lang: raise BuildError(f'unknown game language {lang_in!r}; give one of {language_list([c for c, _ in nacp.LANGUAGES])}, by code or by name')
     env = dict(os.environ, PATH=os.pathsep.join(TOOL_PATHS + [os.environ.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')]))
     env.setdefault('USER', getpass.getuser())   # xcodegen fails without USER (Couldn't find current username)
+    configure_dotnet(env)
     env.setdefault('J', str(os.cpu_count() or 8))   # shader_split.py's and dmsh_build.py's workers (their default is 8)
     py = sys.executable
     app, fam = scan_nsps(nsp_dir)
     force = args.provisional or PROVISIONAL   # a provisional profile even when dm/games has one (testing the guesses)
     g, provisional, shadowed = None if force else gamemod.by_title(app), False, False
+    xlate = repo / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
+    if g is not None or not (args.survey_only or SURVEY_ONLY): check_prereqs(env, xlate, mac)
     if g is None:   # no game profile: survey, then (unless --survey-only) a provisional profile outside the repository and a best-effort IPA
         missing = [m for m in ('lz4.block', 'capstone') if not _importable(m)]
         if missing: raise BuildError(f'the current Python ({sys.executable}) is missing modules: {", ".join(missing)}')
@@ -1555,11 +1641,9 @@ def main(args=None):
         except ValueError as e: raise BuildError(str(e)) from e
     say('Mac-only build for development: the Mac shaders and the Mac host, no iOS shaders, Xcode project or IPA' if mac else f'Xcode project: {project}' if prepare_xcode else f'output IPA: {out_ipa}')
     say(f'work folder (extracted game files in extract/, {"kept for the next build" if keep else "deleted after the IPA is built"}): {work}')
-    xlate = repo / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
     # DM_GAME picks the profile; DM_ROOT / WORK point at <id>_build: the tools' default paths and temporary directories all stay inside it
     env.update(DM_GAME=g.id, DM_ROOT=str(work), WORK=str(work / 'tmp'))
     logs = work / 'logs'
-    check_prereqs(env, xlate, mac)
     picks = pick_nsps(fam, have, versions)
 
     ex = work / 'extract'; ex.mkdir(parents=True, exist_ok=True); (work / 'tmp').mkdir(exist_ok=True)

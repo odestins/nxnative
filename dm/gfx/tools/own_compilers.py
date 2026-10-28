@@ -9,16 +9,25 @@
 # Usage: own_compilers.py <dmsh_build.py arguments>   (the environment as for dmsh_build.py)
 import os, re, sys, runpy
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE); import dmsh_chain
-OWN = re.compile(r'(spirv-cross|metal_macosx|metal_iphoneos): lock (.*) / actual (?!missing$)(.*)')   # a missing compiler still stops the build
+OWN = re.compile(r'(spirv-cross|metal_macosx|metal_iphoneos): lock (.*) / actual (?!missing$)(.*)')   # a missing compiler for an active target still stops the build
 strict = dmsh_chain.check_tools
+
+def ios_target():
+    return 'ios' in (os.environ.get('DMSH_TARGETS') or ('mac,ios' if os.environ.get('IOSOUT') else 'mac')).split(',')
 
 def check_tools():
     bad, own = [], []
-    for b in strict(): (own if OWN.fullmatch(b) else bad).append(b)
+    for b in strict():
+        if b.startswith('metal_iphoneos: ') and b.endswith(' / actual missing') and not ios_target(): continue
+        (own if OWN.fullmatch(b) else bad).append(b)
     if own and not bad: print('note: built with this Mac\'s compilers, not the ones the shaders were tested with (dmsh_chain.lock): ' +
                   '; '.join(f'{m[1]} {m[3]} (tested: {m[2]})' for m in map(OWN.fullmatch, own)), flush=True)
     return bad
 
-dmsh_chain.check_tools = check_tools   # dmsh_build.py imports the same module object and calls it through the module
-sys.argv = [os.path.join(HERE, 'dmsh_build.py'), *sys.argv[1:]]
-runpy.run_path(sys.argv[0], run_name='__main__')
+def main():
+    dmsh_chain.check_tools = check_tools   # dmsh_build.py imports this module object
+    sys.argv = [os.path.join(HERE, 'dmsh_build.py'), *sys.argv[1:]]
+    runpy.run_path(sys.argv[0], run_name='__main__')
+
+
+if __name__ == '__main__': main()

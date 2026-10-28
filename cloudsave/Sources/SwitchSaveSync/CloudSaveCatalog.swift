@@ -34,13 +34,16 @@ import Combine
         let current = generation
         // Resolving the container can block in Apple's filesystem service.
         // The boot gate can stop waiting without starting a late restore/query.
-        startTask = Task { [weak self] in
-            let container = await Task.detached(priority: .utility) { CloudSaveStore.containerURL() }.value
-            guard !Task.isCancelled, let self, generation == current else { return }
-            startTask = nil
-            guard let container else { available = false; gathering = false; hasFinishedScan = true; status = "Sign in to iCloud and enable iCloud Drive in iPhone Settings."; return }
-            beginQuery(container)
+        startTask = Task.detached(priority: .utility) { [weak self] in
+            let container = CloudSaveStore.containerURL()
+            await self?.finishStart(container, generation: current)
         }
+    }
+    private func finishStart(_ container: URL?, generation current: Int) {
+        guard !Task.isCancelled, generation == current else { return }
+        startTask = nil
+        guard let container else { available = false; gathering = false; hasFinishedScan = true; status = "Sign in to iCloud and enable iCloud Drive in iPhone Settings."; return }
+        beginQuery(container)
     }
     private func beginQuery(_ container: URL) {
         root = container; available = true
@@ -66,13 +69,18 @@ import Combine
         query.enableUpdates()
         generation += 1; let current = generation
         refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
-            let rows = await Task.detached(priority: .utility) { CloudSaveStore.readRecords(urls) }.value
-            guard !Task.isCancelled, let self, generation == current else { return }
-            if records != rows { records = rows }
-            hasFinishedScan = true
-            status = rows.isEmpty ? (urls.isEmpty ? "Ready for your first game save" : "Downloading save information…") : rows.contains(where: { !$0.uploaded }) ? "Waiting for iCloud upload" : "Saves are in iCloud"
+        // Retain the actual worker, rather than an awaiting parent task whose
+        // cancellation would leave detached file coordination running behind it.
+        refreshTask = Task.detached(priority: .utility) { [weak self] in
+            let rows = CloudSaveStore.readRecords(urls)
+            await self?.finishRefresh(rows, hasFiles: !urls.isEmpty, generation: current)
         }
+    }
+    private func finishRefresh(_ rows: [CloudSaveRecord], hasFiles: Bool, generation current: Int) {
+        guard !Task.isCancelled, generation == current else { return }
+        if records != rows { records = rows }
+        hasFinishedScan = true
+        status = rows.isEmpty ? (hasFiles ? "Downloading save information…" : "Ready for your first game save") : rows.contains(where: { !$0.uploaded }) ? "Waiting for iCloud upload" : "Saves are in iCloud"
     }
     public func stop() {
         generation += 1; startTask?.cancel(); startTask = nil; refreshTask?.cancel(); refreshTask = nil; query?.stop(); query = nil; gathering = false

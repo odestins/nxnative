@@ -119,6 +119,48 @@ final class LibraryTests: XCTestCase, @unchecked Sendable {
         XCTAssertFalse(snapshot.games[0].isFavorite)
     }
 
+    func testCorruptionAfterLoadDoesNotReplaceLastGoodBackup() async throws {
+        let repository = LibraryRepository(directory: root)
+        _ = try await repository.importGames([card()])
+        _ = try await repository.toggleFavorite(id: card().id)
+        let primary = root.appendingPathComponent("library.json")
+        let backup = root.appendingPathComponent("library.backup.json")
+        let previous = try Data(contentsOf: backup)
+        try Data("damaged after the library was loaded".utf8).write(to: primary)
+
+        _ = try await repository.recordLaunch(id: card().id, opened: true)
+        XCTAssertEqual(try Data(contentsOf: backup), previous)
+
+        // If the next primary is lost too, the original recovery copy must
+        // still restore the library instead of containing the damaged bytes.
+        try FileManager.default.removeItem(at: primary)
+        let restored = try await LibraryRepository(directory: root).load()
+        XCTAssertEqual(restored.games.map(\.id), [card().id])
+        XCTAssertNotNil(restored.recoveryMessage)
+    }
+
+    func testOversizedMetadataCannotPublishAnUnreadableLibrary() async throws {
+        let repository = LibraryRepository(directory: root)
+        _ = try await repository.importGames([card()])
+        _ = try await repository.toggleFavorite(id: card().id)
+        let before = try await repository.load()
+        let primary = root.appendingPathComponent("library.json")
+        let backup = root.appendingPathComponent("library.backup.json")
+        let previous = try Data(contentsOf: primary), recovery = try Data(contentsOf: backup)
+        // A grapheme's combining marks can make a short valid name consume a
+        // large byte count. Repeated imports must still respect the read limit.
+        let name = "A" + String(repeating: "\u{301}", count: 4_200_000)
+        let cards = (1...4).map { card(String(format: "%016llX", UInt64($0)), name: name) }
+        do {
+            _ = try await repository.importGames(cards)
+            XCTFail("The library must remain within its next launch's read budget")
+        } catch LibraryError.invalid(let message) { XCTAssertTrue(message.contains("too large")) }
+        XCTAssertEqual(try Data(contentsOf: primary), previous)
+        XCTAssertEqual(try Data(contentsOf: backup), recovery)
+        let retained = try await repository.load()
+        XCTAssertTrue(retained.games == before.games, "Failed writes must preserve the in-memory library")
+    }
+
     func testBatchIsAtomicAndCoversLiveOutsideMetadata() async throws {
         let repository = LibraryRepository(directory: root)
         var invalid = card("0100000000000000"); invalid.name = ""

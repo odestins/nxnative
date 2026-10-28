@@ -11,6 +11,8 @@ t_fstep
 t_refl
 t_refl.dSYM
 t_refl_limits
+t_present_alloc
+t_present_alloc.dSYM/
 t_refl_limits.dSYM/
 t_hmap
 t_cover

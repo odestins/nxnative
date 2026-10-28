@@ -34,12 +34,12 @@ public actor LibraryRepository {
             games = good; loaded = true; writable = true
             return LibrarySnapshot(games: games)
         }
-        if let good = try? read(backup) {
+        if let bytes = try? boundedRead(backup, maximum: GameTransfer.maximumBytes), let good = try? decode(bytes) {
             // Preserve the unreadable original before restoring a valid copy.
             if fileManager.fileExists(atPath: primary.path) {
                 try fileManager.copyItem(at: primary, to: directory.appendingPathComponent("library.recovery-\(UUID().uuidString).json"))
             }
-            try Data(contentsOf: backup).write(to: primary, options: .atomic)
+            try bytes.write(to: primary, options: .atomic)
             games = good; loaded = true; writable = true
             return LibrarySnapshot(games: games, recoveryMessage: "Your library was restored from its previous backup. The unreadable file was kept for recovery. The most recent change may need to be repeated.")
         }
@@ -47,7 +47,10 @@ public actor LibraryRepository {
     }
 
     private func read(_ url: URL) throws -> [LibraryGame] {
-        let data = try boundedRead(url, maximum: GameTransfer.maximumBytes)
+        try decode(boundedRead(url, maximum: GameTransfer.maximumBytes))
+    }
+
+    private func decode(_ data: Data) throws -> [LibraryGame] {
         let document = try JSONDecoder().decode(LibraryDocument.self, from: data)
         guard document.schemaVersion == 1, document.games.count <= GameTransfer.maximumGames else { throw LibraryError.unreadableLibrary }
         var ids = Set<String>()
@@ -161,10 +164,27 @@ public actor LibraryRepository {
     }
 
     private func persist(_ next: [LibraryGame]) throws {
+        // Character-count validation cannot bound UTF-8: one grapheme may
+        // contain arbitrarily many combining marks. Reject oversized metadata
+        // before encoding, and account for JSON overhead before replacing files.
+        let limit = GameTransfer.maximumBytes
+        let tooLarge = LibraryError.invalid("The library is too large to save safely (32 MB maximum). Use shorter game-card metadata.")
+        var bytes = 0
+        for game in next {
+            let m = game.manifest
+            for value in [m.titleID, m.name, m.version, m.bundleID, m.launchURL, m.minimumOS,
+                          m.sourceRevision ?? "", game.artworkFilename ?? ""] {
+                guard value.utf8.count <= limit - bytes else { throw tooLarge }
+                bytes += value.utf8.count
+            }
+        }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(LibraryDocument(games: next))
-        if fileManager.fileExists(atPath: primary.path) {
-            try Data(contentsOf: primary).write(to: backup, options: .atomic)
+        guard data.count <= limit else { throw tooLarge }
+        // The file may have become unreadable since load(). Never promote
+        // corrupt or oversized bytes over the last known-good recovery copy.
+        if let previous = try? boundedRead(primary, maximum: limit), (try? decode(previous)) != nil {
+            try previous.write(to: backup, options: .atomic)
         }
         try data.write(to: primary, options: .atomic)
         games = next

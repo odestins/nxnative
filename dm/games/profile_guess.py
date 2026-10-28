@@ -69,6 +69,16 @@ def npdm(path):   # (system resource size, program ID) from main.npdm; a non-zer
     return (struct.unpack_from('<I', d, 0x14)[0] if d[:4] == b'META' else 0), (struct.unpack_from('<Q', d, a + 0x10)[0] if a >= 0 else None)
 
 
+def aarch64(path):
+    """NPDM Is64BitInstruction; missing metadata retains the previous survey path."""
+    try:
+        with Path(path).open('rb') as f: d = f.read(0x10)
+    except FileNotFoundError: return True
+    if d[:4] != b'META': return True
+    if len(d) < 0x10: raise ValueError('main.npdm has a truncated META header; extract the game again')
+    return bool(d[0xc] & 1)
+
+
 def facts_of(exefs, romfs):
     """What the profile rules (and the survey report) need from a game's code modules and RomFS"""
     exefs = Path(exefs)

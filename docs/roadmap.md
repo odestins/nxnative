@@ -1,22 +1,22 @@
 # reSwitch multiplayer roadmap
 
-Updated 24 October 2026.
+Updated 28 October 2026.
 
 Three planned capabilities will let friends play together through reSwitch. The initial game target is the existing Super Mario Bros. Wonder 1.0.1 port; additional games need their own compatibility checks. These items are roadmap work, separate from the installed app's existing text and voice Chat.
 
 | Idea | Player experience | Where the game runs | Status |
 | --- | --- | --- | --- |
-| 1. Local co-op | Several people play together using controllers connected to one iPhone. | One iPhone runs and displays the game. | Planned |
+| 1. Local co-op | Several people play together using controllers connected to one iPhone. | One iPhone runs and displays the game. | Controller routing implemented; device gameplay acceptance pending |
 | 2. Remote play through Chat | Friends join a host's game from their own phones and control separate characters. | The host runs the game; guests receive video and send controller inputs. | Planned prototype |
 | 3. Multiplayer with each phone running the game | Each person launches their own game and plays in the same synchronized session. | Every participating phone runs and renders its own native game app. | Planned feasibility research and implementation |
 
 ## 1 Local co-op on one iPhone
 
-Assign each connected controller to a separate player, beginning with two players and expanding to the game's supported player count. Reuse the controller-slot logic already present in the Mac front end and shared runtime. The current iOS input path sends every physical controller into player 1.
+The iOS runtime now reuses the Mac front end's controller-slot logic, assigning physical controllers to separate players for games that support multiple controllers. Single-player games retain their existing controller fallback. Disconnects and backgrounding release held inputs and pending button edges. This is implemented in source; it has not yet passed a two-controller Wonder session on a physical iPhone or iPad, and existing installed game apps need rebuilding before they receive it.
 
-Planned work:
+Remaining work:
 
-- Port stable player assignment to iOS, including disconnects, reconnections, and releasing held buttons when a controller disappears.
+- Check assignment, disconnects, and reconnections with two real controllers on iPhone and iPad.
 - Make touch controls and physical-controller ownership clear, and respect each game's supported controller types and player count.
 - Verify character selection, independent movement, shared course progression, and save ownership in Wonder.
 

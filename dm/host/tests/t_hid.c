@@ -1,10 +1,16 @@
 // Players and controllers (GitHub issue #74): the Mac front end's slot assignment (pad_slots.h) and the npads hle_hid.c reports for each player, docked and handheld, with the
 // game's supported npad ids; no controller, window or guest exists in this test (the hid take-overs are called directly, events are recorded by the stubs)
+#include <unistd.h>
+static int hid_usleep(useconds_t usec);
+#define usleep hid_usleep
 #include "../hle_hid.c"
+#undef usleep
 #include "../pad_slots.h"
 
 static int checks, fails, g_mode = 1, g_signals;
 static void *g_signalled;
+static void (*script_hold)(void);
+static int hid_usleep(useconds_t usec) { (void)usec; if (script_hold) script_hold(); return 0; }
 #define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
 int dm_opmode(void) { return g_mode; }
 uint64_t guest_ns(void) { return 1000000000ull; }
@@ -107,9 +113,57 @@ static void t_npads(void) {
     CHECK(info[0] == 2 && info[1] == NPAD_HANDHELD, "handheld: the applet selects the handheld controller");
 }
 
+// Exercise the actual publisher during its hold: noisy controller updates must not replace scripted presses after the first read consumes the edge latch.
+static void t_script_hold(void) {
+    dm_pad_set(DM_BTN_B, 120, 0, 0, 0);
+    CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_A | DM_BTN_B | DM_BTN_X), "script, controller and keyboard buttons are combined");
+    CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_A | DM_BTN_B | DM_BTN_X), "scripted hold survives controller updates and consumed latch");
+    CHECK(lx_of(0) == -0x7000, "scripted stick wins over controller drift");
+    CHECK(atomic_load(&g_shake_on), "controller updates do not stop a scripted shake");
+}
+static void t_script(void) {
+    g_mode = 1; dm_pad_players(1);
+    dm_pad_set(0, 0, 0, 0, 0); buttons_of(0, STYLE_FULLKEY);
+    dm_input_set(DM_BTN_X, 0, 0, 0, 0);
+    g_nsteps = 1; g_steps[0] = (key_step){.btn = DM_BTN_A | DM_BTN_SHAKE, .lx = -0x7000, .hold = 0.15};
+    script_hold = t_script_hold; keys_main(NULL); script_hold = NULL;
+    CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_B | DM_BTN_X), "script release preserves controller and keyboard buttons");
+    CHECK(lx_of(0) == 120, "script release preserves the controller stick");
+    CHECK(!atomic_load(&g_shake_on), "script release ends its shake hold");
+    dm_input_set(0, 0, 0, 0, 0); dm_pad_set(0, 0, 0, 0, 0); buttons_of(0, STYLE_FULLKEY);
+    g_steps[0] = (key_step){.btn = DM_BTN_Y}; keys_main(NULL);
+    CHECK(buttons_of(0, STYLE_FULLKEY) == DM_BTN_Y, "short scripted press is latched until read");
+    CHECK(buttons_of(0, STYLE_FULLKEY) == 0, "short scripted press is read once");
+    g_mode = 0; dm_pad_players(3);
+    script_set(DM_BTN_A, 100, -200, 300, -400);
+    CHECK(buttons_of(1, STYLE_FULLKEY) == 0, "player 2 does not receive or consume scripted presses");
+    NpadState state; fill(&state, NPAD_HANDHELD, STYLE_HANDHELD);
+    CHECK(state.buttons == DM_BTN_A && state.lx == 100 && state.ly == -200 && state.rx == 300 && state.ry == -400, "script and all axes reach player 1 in handheld mode");
+    script_set(0, 0, 0, 0, 0); buttons_of(NPAD_HANDHELD, STYLE_HANDHELD);
+    g_mode = 1; dm_pad_players(1); g_nsteps = 0;
+}
+static void t_disconnect_edges(void) {
+    g_mode = 1; ids((const uint32_t[]){0, 1, NPAD_HANDHELD}, 3); dm_pad_players(3);
+    dm_pad_set_player(1, DM_BTN_A, 1234, 0, 0, 0);
+    dm_pad_players(1); dm_pad_players(3);
+    CHECK(buttons_of(1, STYLE_FULLKEY) == 0 && lx_of(1) == 0, "reconnected player cannot inherit an unread press or stick from the old controller");
+    dm_input_set(DM_BTN_X, 0, 0, 0, 0); script_set(DM_BTN_B, 0, 0, 0, 0); dm_pad_set(DM_BTN_A, 0, 0, 0, 0);
+    dm_pad_clear_player(0);
+    CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_X | DM_BTN_B), "clearing player 1 drops its unread edge but preserves touch and script");
+    dm_pad_set_player(1, DM_BTN_Y, 0, 0, 0, 0); dm_pad_clear_player(1);
+    CHECK(buttons_of(1, STYLE_FULLKEY) == 0, "suspend clear drops another player's pending edge");
+    dm_pad_set(DM_BTN_A, 0, 0, 0, 0); dm_pad_set(0, 0, 0, 0, 0);
+    CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_A | DM_BTN_X | DM_BTN_B), "ordinary releases still retain short presses");
+    dm_pad_clear_player(-1); dm_pad_clear_player(DM_PLAYERS);
+    CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_X | DM_BTN_B), "invalid player clear is harmless");
+    dm_input_set(0, 0, 0, 0, 0); script_set(0, 0, 0, 0, 0); dm_pad_players(1);
+}
+
 int main(void) {
     t_slots();
     t_npads();
+    t_script();
+    t_disconnect_edges();
     printf("hid players: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

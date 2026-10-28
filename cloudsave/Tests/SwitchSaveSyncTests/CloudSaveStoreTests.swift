@@ -122,4 +122,34 @@ final class CloudSaveStoreTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: stateURL), bytes)
         }
     }
+
+    func testCancelledMetadataScanDoesNotStartFileReads() async {
+        let count = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            var reads = 0
+            _ = CloudSaveStore.readRecords([URL(fileURLWithPath: "/unused.switchsave")]) { _ in
+                reads += 1; return nil
+            }
+            return reads
+        }.value
+        XCTAssertEqual(count, 0, "A superseded scan must not start file coordination")
+    }
+
+    func testMetadataScanStopsAfterCancellationDuringARead() async {
+        let device = UUID().uuidString.lowercased()
+        let manifest = SaveManifest(titleID: title, game: "Fixture", version: "1", device: device,
+                                    deviceName: "Phone", clock: SaveClock([device: 1]))
+        let record = CloudSaveRecord(manifest: manifest, url: URL(fileURLWithPath: "/fixture.switchsave"), uploaded: true)
+        let result = await Task {
+            var reads = 0
+            let rows = CloudSaveStore.readRecords(Array(repeating: record.url, count: 20)) { _ in
+                reads += 1
+                if reads == 3 { withUnsafeCurrentTask { $0?.cancel() } }
+                return record
+            }
+            return (reads, rows.count)
+        }.value
+        XCTAssertEqual(result.0, 3, "Cancellation must stop the remaining coordinated reads")
+        XCTAssertEqual(result.1, 0, "A canceled scan must not publish a partial list")
+    }
 }

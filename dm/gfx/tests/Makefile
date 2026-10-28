@@ -66,6 +66,12 @@ t_upload_slots: t_upload_slots.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_upload_slots.m $(MTL_T_SRC) $(FW)
 t_present_rescue: t_present_rescue.m t_present_rescue_focus.c $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_present_rescue.m t_present_rescue_focus.c $(MTL_T_SRC) $(FW)
+t_present_alloc: t_present_alloc.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_present_alloc.m $(MTL_T_SRC) $(FW)
+check_t_present_alloc: t_present_alloc
+	MTL_DEBUG_LAYER=1 ./t_present_alloc
+run: check_t_present_alloc
+.PHONY: check_t_present_alloc
 .PHONY: check_t_present_rescue
 check_t_present_rescue: t_present_rescue
 	MTL_DEBUG_LAYER=1 ./t_present_rescue --metal

@@ -72,24 +72,37 @@ public actor CloudSaveStore {
         return FileManager.default.url(forUbiquityContainerIdentifier: CloudSavePreferences.container)
     }
     public static func readRecords(_ urls: [URL]) -> [CloudSaveRecord] {
+        readRecords(urls, load: readRecord)
+    }
+
+    /// Metadata notifications can supersede a scan while it is coordinating a
+    /// file. Check cancellation between files so obsolete scans stop doing I/O.
+    static func readRecords(_ urls: [URL], load: (URL) -> CloudSaveRecord?) -> [CloudSaveRecord] {
         var records: [CloudSaveRecord] = []
         for url in urls.prefix(512) {
-            do {
-                let values = try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsUploadedKey])
-                if values.ubiquitousItemDownloadingStatus == .notDownloaded {
-                    try FileManager.default.startDownloadingUbiquitousItem(at: url); continue
-                }
-                var manifest: SaveManifest?, failure: Error?
-                var coordination: NSError?
-                NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordination) { coordinated in
-                    do { manifest = try SaveArchive.readManifest(coordinated) } catch { failure = error }
-                }
-                if failure == nil, coordination == nil, let manifest {
-                    records.append(CloudSaveRecord(manifest: manifest, url: url, uploaded: values.ubiquitousItemIsUploaded == true))
-                }
-            } catch { /* A pending download is retried by the metadata query. */ }
+            guard !Task.isCancelled else { return [] }
+            if let record = load(url) { records.append(record) }
         }
+        guard !Task.isCancelled else { return [] }
         return records.sorted { $0.manifest.savedAt > $1.manifest.savedAt }
+    }
+
+    private static func readRecord(_ url: URL) -> CloudSaveRecord? {
+        do {
+            let values = try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsUploadedKey])
+            if values.ubiquitousItemDownloadingStatus == .notDownloaded {
+                try FileManager.default.startDownloadingUbiquitousItem(at: url); return nil
+            }
+            var manifest: SaveManifest?, failure: Error?
+            var coordination: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordination) { coordinated in
+                do { manifest = try SaveArchive.readManifest(coordinated) } catch { failure = error }
+            }
+            if failure == nil, coordination == nil, let manifest {
+                return CloudSaveRecord(manifest: manifest, url: url, uploaded: values.ubiquitousItemIsUploaded == true)
+            }
+        } catch { /* A pending download is retried by the metadata query. */ }
+        return nil
     }
 
     public func submit(snapshot: URL) throws {
